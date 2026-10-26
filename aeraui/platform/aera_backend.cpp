@@ -597,6 +597,9 @@ bool RecoveryBackupCanUpload(const std::string &folder) {
 }
 
 std::string RecoverySlot() { return PartitionManager.Get_Active_Slot_Display(); }
+bool RecoveryAbDevice() {
+  return android::base::GetBoolProperty("ro.build.ab_update", false);
+}
 std::string RecoveryBootSlot() {
   const auto suffix = android::base::GetProperty("ro.boot.slot_suffix", "");
   if (suffix == "_a" || suffix == "_b") return suffix.substr(1);
@@ -1190,7 +1193,8 @@ int RecoveryRunJob(const JobRequest &request) {
     gui_err("Finish or cancel background plugin storage tasks first.\n");
     return 1;
   }
-  const char *method = request.job == Job::kInstall ? "ZIP installation" :
+  const char *method = request.job == Job::kInstall
+      ? (request.ota ? "OTA installation" : "ZIP installation") :
       request.job == Job::kSideload ? "ADB sideload" :
       request.job == Job::kFlashPayload ? "Advanced payload flash" :
       request.job == Job::kFlashImage ? "Image flash" : nullptr;
@@ -1560,7 +1564,18 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
     DataManager::SetProgress(1.0f);
     return 0;
   }
-  if (request.job == Job::kInstall) return aeraui_install_package(request.path.c_str());
+  if (request.job == Job::kInstall) {
+    if (!request.ota) return aeraui_install_package(request.path.c_str());
+    // Keep normal ZIP installs untouched: the OTA override is scoped to this run.
+    const int previous_verify = DataManager::GetIntValue(TW_SIGNED_ZIP_VERIFY_VAR);
+    DataManager::SetValue(TW_SIGNED_ZIP_VERIFY_VAR, request.ota_verify_signature ? 1 : 0);
+    DataManager::SetValue("tw_file_progress", "Installing OTA update");
+    LOGINFO("AERA: OTA install request for %s (signature verification: %s)\n",
+            request.path.c_str(), request.ota_verify_signature ? "on" : "off");
+    const int result = aeraui_install_package(request.path.c_str());
+    DataManager::SetValue(TW_SIGNED_ZIP_VERIFY_VAR, previous_verify);
+    return result;
+  }
   if (request.job == Job::kPcBackupOperation) return RecoveryRunPcBackup(request);
   if (request.job == Job::kNetworkStorage) {
     std::string error;

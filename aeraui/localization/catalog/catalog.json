@@ -72829,6 +72829,71 @@
       "vi_VN": "Không thể xóa phông chữ.",
       "zh_CN": "无法删除字体。",
       "zh_TW": "無法刪除字型。"
+    },
+    "A/B device": {
+      "en": "A/B device",
+      "zh_CN": "A/B 设备",
+      "zh_TW": "A/B 裝置"
+    },
+    "Downgrade check": {
+      "en": "Downgrade check",
+      "zh_CN": "降级检查",
+      "zh_TW": "降級檢查"
+    },
+    "Install OTA update  ": {
+      "en": "Install OTA update  ",
+      "zh_CN": "安装 OTA 更新  ",
+      "zh_TW": "安裝 OTA 更新  "
+    },
+    "Install OTA update": {
+      "en": "Install OTA update",
+      "zh_CN": "安装 OTA 更新",
+      "zh_TW": "安裝 OTA 更新"
+    },
+    "Install OTA update?": {
+      "en": "Install OTA update?",
+      "zh_CN": "安装 OTA 更新？",
+      "zh_TW": "安裝 OTA 更新？"
+    },
+    "Package metadata is checked during installation": {
+      "en": "Package metadata is checked during installation",
+      "zh_CN": "安装时会检查包元数据",
+      "zh_TW": "安裝時會檢查套件中繼資料"
+    },
+    "Signature verification": {
+      "en": "Signature verification",
+      "zh_CN": "签名校验",
+      "zh_TW": "簽名驗證"
+    },
+    "This is an OTA update package. Installation checks the package metadata against this device and stops if the package is older than the current build (downgrade protection).": {
+      "en": "This is an OTA update package. Installation checks the package metadata against this device and stops if the package is older than the current build (downgrade protection).",
+      "zh_CN": "这是 OTA 更新包。安装时会根据本设备检查包元数据，如果包比当前版本更旧则会停止（防降级保护）。",
+      "zh_TW": "這是 OTA 更新套件。安裝時會根據本裝置檢查套件中繼資料，如果套件比目前版本更舊則會停止（防降級保護）。"
+    },
+    "YukiSU SuperKey": {
+      "en": "YukiSU SuperKey",
+      "zh_CN": "YukiSU 超级密钥",
+      "zh_TW": "YukiSU 超級金鑰"
+    },
+    "Leave empty to trust only the official manager signature. The key stays in memory for this session and is written into the patched boot image.": {
+      "en": "Leave empty to trust only the official manager signature. The key stays in memory for this session and is written into the patched boot image.",
+      "zh_CN": "留空则只信任官方管理器的签名。密钥仅在本次会话内保存在内存中，并会写入已修补的启动镜像。",
+      "zh_TW": "留空則只信任官方管理員的簽名。金鑰僅在本次工作階段內保存在記憶體中，並會寫入已修補的開機映像。"
+    },
+    "Patch now": {
+      "en": "Patch now",
+      "zh_CN": "立即修补",
+      "zh_TW": "立即修補"
+    },
+    "SuperKey": {
+      "en": "SuperKey",
+      "zh_CN": "超级密钥",
+      "zh_TW": "超級金鑰"
+    },
+    "Optional. This key authenticates root for the KernelPatch manager; leave empty to keep the default key.": {
+      "en": "Optional. This key authenticates root for the KernelPatch manager; leave empty to keep the default key.",
+      "zh_CN": "可选。该密钥用于 KernelPatch 管理器的 root 认证；留空则使用默认密钥。",
+      "zh_TW": "可選。此金鑰用於 KernelPatch 管理員的 root 認證；留空則使用預設金鑰。"
     }
   }
 }

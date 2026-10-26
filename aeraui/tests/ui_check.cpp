@@ -403,6 +403,7 @@ SnapshotCowStatus RecoverySnapshotCowStatus() {
   return status;
 }
 std::string RecoverySlot() { return active_slot; }
+bool RecoveryAbDevice() { return active_slot == "A" || active_slot == "B"; }
 std::string RecoveryVersion() { return "R1.0"; }
 std::string RecoveryBuildType() { return "Stable"; }
 std::string RecoveryBuildStatus() { return "Unofficial"; }

@@ -541,6 +541,27 @@ void ReviewFastFlash(const payload::Info &info, const std::string &path,
     Explanation(area, "Use only firmware intended for this device. This bypasses the normal OTA installer and its compatibility checks, snapshot rollback and postinstall. An interruption may leave the current slot unbootable. Do not reboot after a failure; reflash known-good firmware.");
   });
 }
+void ReviewOtaInstall(lv_obj_t *screen, const std::string &path, const std::string &detail,
+                      ActionCallback callback, void *context) {
+  const bool ab = RecoveryAbDevice();
+  const bool verify = RecoveryPreference(Preference::kVerifyZip);
+  JobRequest request;
+  request.job = Job::kInstall;
+  request.path = path;
+  request.title = "Install OTA update";
+  request.ota = true;
+  request.ota_verify_signature = verify;
+  Sheet(screen, "Install OTA update?", detail, [request, callback, context] {
+    SetJobRequest(request);
+    callback(Action::kRunOperation, context);
+  }, 1700, false, SheetPresentation::kStandard, "Swipe to install", [ab, verify](lv_obj_t *area) {
+    Layout(area);
+    Row(area, "A/B device", ab ? "Yes" : "No");
+    Row(area, "Downgrade check", "Package metadata is checked during installation");
+    Row(area, "Signature verification", verify ? "Enabled" : "Disabled");
+    Explanation(area, "This is an OTA update package. Installation checks the package metadata against this device and stops if the package is older than the current build (downgrade protection).");
+  });
+}
 struct Review {
   lv_obj_t *screen;
   lv_obj_t *overlay;
@@ -578,6 +599,14 @@ void Ready(lv_timer_t *timer) {
         SheetPresentation::kStandard, "Swipe to install", [screen, info, path, detail, callback, context](lv_obj_t *area) {
       Layout(area);
       Explanation(area, detail);
+      auto *ota = Button(area, "Install OTA update  " LV_SYMBOL_RIGHT,
+          [screen, path, detail, callback, context] {
+        ReviewOtaInstall(screen, path, detail, callback, context);
+      });
+      lv_obj_set_size(ota, LV_PCT(100), 96);
+      lv_obj_set_style_radius(ota, 24, 0);
+      lv_obj_set_style_border_width(ota, 1, 0);
+      lv_obj_set_style_border_color(ota, kMainLine, 0);
       auto *advanced = Button(area, "Advanced  " LV_SYMBOL_RIGHT,
           [screen, info, path, callback, context] { AdvancedZip(screen, info, path, {}, callback, context); });
       lv_obj_set_size(advanced, LV_PCT(100), 96);
@@ -588,10 +617,20 @@ void Ready(lv_timer_t *timer) {
   gate->progress = arb;
   gate->includes_firmware = std::any_of(info.partitions.begin(), info.partitions.end(),
       [](const auto &p) { return p.name == "xbl_config"; });
-  Sheet(screen, "Review Android update", "", [gate, install] {
-    if (gate->AllowsInstall()) install();
+  const bool ab = RecoveryAbDevice();
+  const bool verify = RecoveryPreference(Preference::kVerifyZip);
+  JobRequest ota_request = request;
+  ota_request.title = "Install OTA update";
+  ota_request.ota = true;
+  ota_request.ota_verify_signature = verify;
+  Handler ota_install = [ota_request, callback, context] {
+        SetJobRequest(ota_request);
+        callback(Action::kRunOperation, context);
+      };
+  Sheet(screen, "Install OTA update?", "", [gate, ota_install] {
+    if (gate->AllowsInstall()) ota_install();
   }, 1900, false,
-        SheetPresentation::kStandard, "Swipe to install", [info, path, arb, gate, callback, context](lv_obj_t *area) {
+        SheetPresentation::kStandard, "Swipe to install", [info, path, arb, gate, callback, context, ab, verify](lv_obj_t *area) {
     Layout(area);
     gate->body = area;
     if (info.name_from_filename) Section(area, "PACKAGE NAME");
@@ -602,7 +641,11 @@ void Ready(lv_timer_t *timer) {
     Row(area, "Android", info.target_sdk);
     Row(area, "Security patch", info.security_patch);
     Row(area, "Update type", info.incremental ? "Incremental OTA" : "Full OTA");
+    Row(area, "A/B device", ab ? "Yes" : "No");
+    Row(area, "Downgrade check", "Package metadata is checked during installation");
+    Row(area, "Signature verification", verify ? "Enabled" : "Disabled");
     Row(area, "Payload size", Size(info.payload_bytes));
+    Explanation(area, "This is an OTA update package. Installation checks the package metadata against this device and stops if the package is older than the current build (downgrade protection).");
     ArbRow(area, arb);
     auto *details = Button(area, "Full information  " LV_SYMBOL_RIGHT,
         [info, path, arb, gate] { FullInfo(gate->overlay, info, path, arb); });

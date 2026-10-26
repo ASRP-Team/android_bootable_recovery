@@ -486,6 +486,11 @@ const char *Repository(Provider provider) {
     case Provider::kKernelSU: return "tiann/KernelSU";
     case Provider::kKernelSUNext: return "KernelSU-Next/KernelSU-Next";
     case Provider::kSukiSU: return "SukiSU-Ultra/SukiSU-Ultra";
+    case Provider::kBakaSU: return "Baka-SU/BakaSU";
+    case Provider::kFinaSU: return "LyraVoid/FinaSU";
+    case Provider::kYukiSU: return "Rouyashiki/YukiSU";
+    case Provider::kAPatch: return "bmax121/APatch";
+    case Provider::kFolkPatch: return "LyraVoid/FolkPatch";
   }
   return "";
 }
@@ -495,6 +500,11 @@ const char *ProviderId(Provider provider) {
     case Provider::kKernelSU: return "kernelsu";
     case Provider::kKernelSUNext: return "kernelsu-next";
     case Provider::kSukiSU: return "sukisu-ultra";
+    case Provider::kBakaSU: return "bakasu";
+    case Provider::kFinaSU: return "finasu";
+    case Provider::kYukiSU: return "yukisu";
+    case Provider::kAPatch: return "apatch";
+    case Provider::kFolkPatch: return "folkpatch";
   }
   return "";
 }
@@ -504,6 +514,13 @@ const char *ManagerPackage(Provider provider) {
     case Provider::kKernelSU: return "me.weishu.kernelsu";
     case Provider::kKernelSUNext: return "com.rifsxd.ksunext";
     case Provider::kSukiSU: return "com.sukisu.ultra";
+    case Provider::kBakaSU: return "com.resukisu.resukisu";
+    case Provider::kFinaSU: return "me.yuki.fina";
+    case Provider::kYukiSU: return "com.anatdx.yukisu";
+    case Provider::kAPatch: return "me.bmax.apatch";
+    // FolkPatch ships its own manager package name; detection stays off until
+    // the exact package id is confirmed rather than guessed.
+    case Provider::kFolkPatch: return "";
   }
   return "";
 }
@@ -570,11 +587,26 @@ bool ManagerAssetName(Provider provider, const std::string &name) {
     case Provider::kSukiSU:
       return lower.compare(0, 7, "sukisu_") == 0 &&
              lower.find("release") != std::string::npos;
+    case Provider::kBakaSU:
+      return (lower.compare(0, 8, "bakasu_") == 0 ||
+              lower.compare(0, 9, "resukisu_") == 0) &&
+             lower.find("release") != std::string::npos;
+    case Provider::kFinaSU:
+      return lower.compare(0, 7, "finasu_") == 0 &&
+             lower.find("release") != std::string::npos;
+    case Provider::kYukiSU:
+      return lower.compare(0, 7, "yukisu_") == 0 &&
+             lower.find("release") != std::string::npos;
+    case Provider::kAPatch:
+      return lower.compare(0, 7, "apatch_") == 0;
+    case Provider::kFolkPatch:
+      return lower.compare(0, 10, "folkpatch_") == 0;
   }
   return false;
 }
 
 bool PackageListed(const std::string &package_name) {
+  if (package_name.empty()) return false;
   std::string packages;
   if (ReadText("/data/system/packages.list", packages, 16 * 1024 * 1024)) {
     size_t offset = 0;
@@ -1106,8 +1138,25 @@ bool InstallManager(Provider provider, Progress &progress) {
   return true;
 }
 
-std::string BlockForSlot(const std::string &slot) {
-  return std::string("/dev/block/by-name/init_boot_") + (slot == "b" ? "b" : "a");
+std::string BlockFor(const std::string &partition, const std::string &slot) {
+  return std::string("/dev/block/by-name/") + partition + "_" +
+         (slot == "b" ? "b" : "a");
+}
+
+bool IsKernelPatch(Provider provider) {
+  return provider == Provider::kAPatch || provider == Provider::kFolkPatch;
+}
+
+std::string FirstExisting(const std::vector<std::string> &paths) {
+  for (const std::string &path : paths)
+    if (FileSize(path) >= 1024) return path;
+  return {};
+}
+
+std::string PartitionArgument(const Request &request) {
+  if (request.partition == "boot" || request.partition == "vendor_boot")
+    return request.partition;
+  return "init_boot";
 }
 
 std::string Stamp() {
@@ -1140,14 +1189,142 @@ bool ExtractSuki(const std::string &archive, const std::string &kmi,
   return true;
 }
 
+bool PatchKernelPatch(const Request &request, const std::string &partition,
+                      Progress &progress) {
+  const std::string slot = request.slot == "b" ? "b" : "a";
+  const std::string tool = FirstExisting({
+      "/system/bin/kptools", "/system/xbin/kptools", "/sbin/kptools"});
+  if (tool.empty()) {
+    SetText(progress, "kptools unavailable",
+            "KernelPatch tooling is not bundled in this recovery build. Add "
+            "kptools to /system/bin and rebuild.");
+    return false;
+  }
+  const std::string kpimg = FirstExisting({
+      "/sdcard/kpimg", "/sdcard/APatch/kpimg", "/data/media/0/kpimg",
+      "/data/local/tmp/kpimg", "/tmp/kpimg", std::string(kWork) + "/kpimg"});
+  if (kpimg.empty()) {
+    SetText(progress, "kpimg unavailable",
+            "Copy kpimg to /sdcard/kpimg (USB transfer or AERA file manager), "
+            "then retry.");
+    return false;
+  }
+  if (!EnsureDirectory(kBackups) || !EnsureDirectory(kReceipts) ||
+      !EnsureDirectory(kWork)) {
+    SetText(progress, "Storage unavailable", "Could not create AERA/RootManager folders.");
+    return false;
+  }
+  const std::string block = BlockFor(partition, slot);
+  const uint64_t size = FileSize(block);
+  if (size < 1024 * 1024 || size > 256 * 1024 * 1024) {
+    SetText(progress, "Target unavailable",
+            "The selected partition has an invalid size.");
+    return false;
+  }
+  const std::string backup = std::string(kBackups) + "/" + partition + "_" +
+                             slot + "-" + Stamp() + ".img";
+  SetText(progress, i18n::Format("Backing up %s_%s", partition.c_str(), slot.c_str()),
+          "A full rollback image is being saved before any write.");
+  if (!CopyExact(block, backup, size, progress, 6, 40)) {
+    SetText(progress, "Backup failed", "Nothing was written to the target partition.");
+    return false;
+  }
+  std::string backup_hash;
+  if (!HashFile(backup, size, "", &backup_hash)) {
+    unlink(backup.c_str());
+    SetText(progress, "Backup verification failed");
+    return false;
+  }
+  const std::string image = std::string(kWork) + "/patched.img";
+  unlink(image.c_str());
+  SetText(progress, i18n::Format("Patching %s with kptools", partition.c_str()),
+          std::string(ProviderName(request.provider)) + " - " + kpimg);
+  progress.value.store(50);
+  std::vector<std::string> command{tool, "-p", "-i", backup, "-k", kpimg,
+                                   "-o", image};
+  if (!request.superkey.empty()) {
+    command.push_back("-s");
+    command.push_back(request.superkey);
+  }
+  std::string patch_log;
+  const bool patched = RunCapture(command, &patch_log);
+  if (!request.superkey.empty()) {
+    for (auto pos = patch_log.find(request.superkey); pos != std::string::npos;) {
+      patch_log.replace(pos, request.superkey.size(), "***");
+      pos = patch_log.find(request.superkey, pos + 3);
+    }
+  }
+  if (!patched || FileSize(image) != size) {
+    SetText(progress, "kptools patch failed", Trim(patch_log));
+    return false;
+  }
+  std::string patched_hash;
+  if (!HashFile(image, size, "", &patched_hash) || patched_hash == backup_hash) {
+    SetText(progress, "Patched image rejected",
+            "The image was not a valid changed full-size " + partition + " image.");
+    return false;
+  }
+  SetText(progress, i18n::Format("Flashing %s_%s", partition.c_str(), slot.c_str()),
+          "Do not disconnect power. The verified backup remains on internal storage.");
+  if (!CopyExact(image, block, size, progress, 80, 98)) {
+    SetText(progress, "Flash failed",
+            "The write did not complete. Restore the saved backup before rebooting.");
+    return false;
+  }
+  std::string flashed_hash;
+  if (!VerifyBlockWrite(block, size, patched_hash, &flashed_hash)) {
+    SetText(progress, "Flash verification failed",
+            "The partition readback did not match the patched image. Restore before rebooting.");
+    return false;
+  }
+  Json::Value receipt;
+  receipt["schema"] = 2;
+  receipt["slot"] = slot;
+  receipt["partition"] = partition;
+  receipt["provider"] = ProviderName(request.provider);
+  receipt["engine"] = "kptools";
+  receipt["kpimg"] = kpimg;
+  receipt["original_sha256"] = backup_hash;
+  receipt["patched_sha256"] = patched_hash;
+  receipt["backup"] = backup;
+  receipt["installed_at"] = Stamp();
+  const std::string receipt_path = std::string(kReceipts) + "/" + partition + "_" +
+                                   slot + ".json";
+  const std::string receipt_temp = receipt_path + ".tmp";
+  {
+    Json::StreamWriterBuilder builder;
+    builder["indentation"] = "  ";
+    const std::string text = Json::writeString(builder, receipt) + "\n";
+    const int fd = open(receipt_temp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd >= 0) {
+      const bool written = write(fd, text.data(), text.size()) ==
+                           static_cast<ssize_t>(text.size()) && fsync(fd) == 0;
+      close(fd);
+      if (written) rename(receipt_temp.c_str(), receipt_path.c_str());
+      else unlink(receipt_temp.c_str());
+    }
+  }
+  progress.value.store(100);
+  SetText(progress, "Root installed", i18n::Format(
+          "%s was installed to %s_%s. Backup: %s",
+          ProviderName(request.provider), partition.c_str(), slot.c_str(),
+          backup.c_str()));
+  return true;
+}
+
 bool Patch(const Request &request, Progress &progress) {
+  const std::string partition = PartitionArgument(request);
+  if (IsKernelPatch(request.provider))
+    return PatchKernelPatch(request, partition, progress);
   const Status device = request.verify_target_kernel ? ProbeSlot(request.slot) : Probe();
-  if (!device.ksud_available || !device.kmi_supported || !device.init_boot_available) {
+  if (!device.ksud_available || !device.kmi_supported ||
+      (partition == "init_boot" && !device.init_boot_available)) {
     SetText(progress, "Kernel unsupported", device.error); return false;
   }
   if (!device.storage_ready) {
     SetText(progress, "Unlock storage first",
-            "A verified copy of init_boot must be saved before patching."); return false;
+            "A verified copy of the target partition must be saved before patching.");
+    return false;
   }
   const std::string slot = request.slot == "b" ? "b" : "a";
   Release release = CachedRelease(request.provider);
@@ -1187,18 +1364,23 @@ bool Patch(const Request &request, Progress &progress) {
       SetText(progress, "Archive rejected", error); return false;
     }
   }
-  const std::string block = BlockForSlot(slot);
+  const std::string block = BlockFor(partition, slot);
   const uint64_t partition_size = FileSize(block);
-  if (partition_size < 1024 * 1024 || partition_size > 64 * 1024 * 1024) {
-    SetText(progress, "init_boot unavailable", "The selected slot has an invalid partition size.");
+  const uint64_t max_size = partition == "init_boot"
+                                ? 64ULL * 1024 * 1024
+                                : 256ULL * 1024 * 1024;
+  if (partition_size < 1024 * 1024 || partition_size > max_size) {
+    SetText(progress, "Target unavailable",
+            "The selected slot has an invalid partition size.");
     return false;
   }
-  const std::string backup = std::string(kBackups) + "/init_boot_" + slot + "-" +
-                             Stamp() + ".img";
-  SetText(progress, i18n::Format("Backing up init_boot_%s", slot.c_str()),
+  const std::string backup = std::string(kBackups) + "/" + partition + "_" +
+                             slot + "-" + Stamp() + ".img";
+  SetText(progress, i18n::Format("Backing up %s_%s", partition.c_str(), slot.c_str()),
           "A full rollback image is being saved before any write.");
   if (!CopyExact(block, backup, partition_size, progress, 46, 60)) {
-    SetText(progress, "Backup failed", "Nothing was written to init_boot."); return false;
+    SetText(progress, "Backup failed",
+            "Nothing was written to the target partition."); return false;
   }
   std::string backup_hash;
   if (!HashFile(backup, partition_size, "", &backup_hash)) {
@@ -1212,14 +1394,27 @@ bool Patch(const Request &request, Progress &progress) {
   std::string patch_log;
   std::vector<std::string> patch_command{
       kKsud, "boot-patch", "-b", backup, "-m", module,
-      "--partition", "init_boot", "--kmi", device.kmi,
+      "--partition", partition, "--kmi", device.kmi,
       "-o", kWork, "--out-name", "patched.img"};
   // ksud 3.3 uses its built-in boot image patcher; older helpers need magiskboot.
   if (CaptureKsud({"boot-patch", "--help"}).find("--magiskboot") !=
       std::string::npos) {
     patch_command.insert(patch_command.end(), {"--magiskboot", kMagiskboot});
   }
+  // YukiSU: --superkey adds an extra manager authenticator inside the LKM.
+  // Empty leaves only the official manager signature, which is the default.
+  if (request.provider == Provider::kYukiSU && !request.superkey.empty()) {
+    patch_command.insert(patch_command.end(),
+                         {"--superkey", request.superkey});
+  }
   const bool patched = RunCapture(patch_command, &patch_log);
+  // Never surface the SuperKey in a failure log shown on screen.
+  if (!request.superkey.empty()) {
+    for (auto pos = patch_log.find(request.superkey); pos != std::string::npos;) {
+      patch_log.replace(pos, request.superkey.size(), "***");
+      pos = patch_log.find(request.superkey, pos + 3);
+    }
+  }
   const std::string image = std::string(kWork) + "/patched.img";
   if (!patched || FileSize(image) != partition_size) {
     SetText(progress, "ksud patch failed", Trim(patch_log)); return false;
@@ -1227,9 +1422,9 @@ bool Patch(const Request &request, Progress &progress) {
   std::string patched_hash;
   if (!HashFile(image, partition_size, "", &patched_hash) || patched_hash == backup_hash) {
     SetText(progress, "Patched image rejected",
-            "The image was not a valid changed full-size init_boot image."); return false;
+            "The image was not a valid changed full-size " + partition + " image."); return false;
   }
-  SetText(progress, i18n::Format("Flashing init_boot_%s", slot.c_str()),
+  SetText(progress, i18n::Format("Flashing %s_%s", partition.c_str(), slot.c_str()),
           "Do not disconnect power. The verified backup remains on internal storage.");
   if (!CopyExact(image, block, partition_size, progress, 80, 98)) {
     SetText(progress, "Flash failed",
@@ -1245,6 +1440,7 @@ bool Patch(const Request &request, Progress &progress) {
   Json::Value receipt;
   receipt["schema"] = 1;
   receipt["slot"] = slot;
+  receipt["partition"] = partition;
   receipt["provider"] = ProviderName(request.provider);
   receipt["version"] = release.version;
   receipt["kmi"] = device.kmi;
@@ -1254,7 +1450,8 @@ bool Patch(const Request &request, Progress &progress) {
   receipt["patched_sha256"] = patched_hash;
   receipt["backup"] = backup;
   receipt["installed_at"] = Stamp();
-  const std::string receipt_path = std::string(kReceipts) + "/init_boot_" + slot + ".json";
+  const std::string receipt_path = std::string(kReceipts) + "/" + partition + "_" +
+                                   slot + ".json";
   const std::string receipt_temp = receipt_path + ".tmp";
   {
     Json::StreamWriterBuilder builder;
@@ -1271,16 +1468,16 @@ bool Patch(const Request &request, Progress &progress) {
   }
   progress.value.store(100);
   SetText(progress, "Root installed", i18n::Format(
-          "%s %s was installed to init_boot_%s. Backup: %s",
+          "%s %s was installed to %s_%s. Backup: %s",
           ProviderName(request.provider), release.version.c_str(),
-          slot.c_str(), backup.c_str()));
+          partition.c_str(), slot.c_str(), backup.c_str()));
   return true;
 }
 
-std::string LatestBackup(const std::string &slot) {
+std::string LatestBackup(const std::string &partition, const std::string &slot) {
   DIR *directory = opendir(kBackups);
   if (!directory) return {};
-  const std::string prefix = "init_boot_" + slot + "-";
+  const std::string prefix = partition + "_" + slot + "-";
   std::string latest;
   while (dirent *entry = readdir(directory)) {
     const std::string name = entry->d_name;
@@ -1294,15 +1491,16 @@ std::string LatestBackup(const std::string &slot) {
 
 bool Rollback(const Request &request, Progress &progress) {
   const std::string slot = request.slot == "b" ? "b" : "a";
-  const std::string backup = LatestBackup(slot);
-  const std::string block = BlockForSlot(slot);
+  const std::string partition = PartitionArgument(request);
+  const std::string backup = LatestBackup(partition, slot);
+  const std::string block = BlockFor(partition, slot);
   const uint64_t size = FileSize(block);
   if (backup.empty() || !size || FileSize(backup) != size) {
     SetText(progress, "No rollback image", i18n::Format(
-        "No valid AERA init_boot_%s backup was found.", slot.c_str()));
+        "No valid AERA %s_%s backup was found.", partition.c_str(), slot.c_str()));
     return false;
   }
-  SetText(progress, i18n::Format("Restoring init_boot_%s", slot.c_str()),
+  SetText(progress, i18n::Format("Restoring %s_%s", partition.c_str(), slot.c_str()),
           backup);
   if (!CopyExact(backup, block, size, progress, 5, 95)) {
     SetText(progress, "Restore failed", "The partition write did not complete."); return false;
@@ -1313,9 +1511,9 @@ bool Rollback(const Request &request, Progress &progress) {
     SetText(progress, "Restore verification failed", "Partition readback differs from the backup.");
     return false;
   }
-  unlink((std::string(kReceipts) + "/init_boot_" + slot + ".json").c_str());
+  unlink((std::string(kReceipts) + "/" + partition + "_" + slot + ".json").c_str());
   progress.value.store(100);
-  SetText(progress, "Original init_boot restored", backup);
+  SetText(progress, "Original partition restored", backup);
   return true;
 }
 
@@ -1472,6 +1670,11 @@ const char *ProviderName(Provider provider) {
     case Provider::kKernelSU: return "KernelSU";
     case Provider::kKernelSUNext: return "KernelSU Next";
     case Provider::kSukiSU: return "SukiSU Ultra";
+    case Provider::kBakaSU: return "BakaSU";
+    case Provider::kFinaSU: return "FinaSU";
+    case Provider::kYukiSU: return "YukiSU";
+    case Provider::kAPatch: return "APatch";
+    case Provider::kFolkPatch: return "FolkPatch";
   }
   return "KernelSU";
 }
@@ -1497,7 +1700,7 @@ Status Probe() {
   const auto partitions = Lines(CaptureKsud({"boot-info", "available-partitions"}));
   status.init_boot_available =
       std::find(partitions.begin(), partitions.end(), "init_boot") != partitions.end() &&
-      access(BlockForSlot(status.slot).c_str(), R_OK | W_OK) == 0;
+      access(BlockFor("init_boot", status.slot).c_str(), R_OK | W_OK) == 0;
   status.storage_ready = access("/sdcard", R_OK | W_OK) == 0 &&
                          EnsureDirectory(kRoot);
   if (!status.kmi_supported)
@@ -1519,7 +1722,7 @@ Status ProbeSlot(const std::string &slot) {
     return device;
   }
   device.slot = slot;
-  device.init_boot_available = access(BlockForSlot(slot).c_str(), R_OK | W_OK) == 0;
+  device.init_boot_available = access(BlockFor("init_boot", slot).c_str(), R_OK | W_OK) == 0;
   const std::string boot = "/dev/block/by-name/boot_" + slot;
   const std::string work = std::string(kWork) + "/target-" + slot;
   const uint64_t bytes = FileSize(boot);
@@ -1574,7 +1777,7 @@ Status ProbeSlot(const std::string &slot) {
 PatchInfo InspectSlot(const std::string &requested_slot) {
   PatchInfo info;
   const std::string slot = requested_slot == "b" ? "b" : "a";
-  const std::string block = BlockForSlot(slot);
+  const std::string block = BlockFor("init_boot", slot);
   const uint64_t size = FileSize(block);
   if (size < 1024 * 1024 || size > 64 * 1024 * 1024) {
     info.detail = i18n::Format("init_boot_%s is unavailable.", slot.c_str());
@@ -1654,7 +1857,14 @@ PatchInfo InspectSlot(const std::string &requested_slot) {
       std::string lower = bytes;
       std::transform(lower.begin(), lower.end(), lower.begin(),
                      [](unsigned char c) { return std::tolower(c); });
-      if (lower.find("sukisu") != std::string::npos) info.provider = "SukiSU Ultra";
+      if (lower.find("yukisu") != std::string::npos) info.provider = "YukiSU";
+      else if (lower.find("finasu") != std::string::npos) info.provider = "FinaSU";
+      else if (lower.find("bakasu") != std::string::npos ||
+          lower.find("resukisu") != std::string::npos) info.provider = "BakaSU";
+      else if (lower.find("sukisu") != std::string::npos) info.provider = "SukiSU Ultra";
+      else if (lower.find("kernelpatch") != std::string::npos)
+        info.provider = lower.find("folkpatch") != std::string::npos
+                            ? "FolkPatch" : "APatch";
       else if (lower.find("kernelsu next") != std::string::npos ||
                lower.find("kernelsu-next") != std::string::npos ||
                lower.find("ksu_next") != std::string::npos)

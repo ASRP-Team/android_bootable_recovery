@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0 */
 #include "scene.hpp"
 #include "aeraui/screen_timeout.hpp"
+#include "aeraui/theme_preset.hpp"
 #include "phone_keyboard.hpp"
 #include "picture_decode.hpp"
 #include "file_manager.hpp"
@@ -1400,12 +1401,16 @@ constexpr std::array<AccentPreset, 7> kAccentPresets{{
 
 bool IsPresetAccent(uint32_t rgb) {
   return std::any_of(kAccentPresets.begin(), kAccentPresets.end(),
-      [rgb](const AccentPreset &preset) { return preset.rgb == rgb; });
+      [rgb](const AccentPreset &preset) { return preset.rgb == rgb; }) ||
+      std::any_of(kThemePresets.begin(), kThemePresets.end(),
+      [rgb](const ThemePreset &preset) { return preset.accent == rgb; });
 }
 
 const char *AccentName(uint32_t rgb) {
   for (const auto &preset : kAccentPresets)
     if (preset.rgb == rgb) return preset.name;
+  for (const auto &preset : kThemePresets)
+    if (preset.accent == rgb) return preset.name;
   return "User selected";
 }
 
@@ -2045,6 +2050,28 @@ void ApplyCurrentTheme() {
   lv_obj_report_style_change(nullptr);
 }
 
+bool ThemePresetActive(const ThemePreset &preset) {
+  return RecoveryAccentColor() == preset.accent &&
+      RecoveryAppearanceMode() == preset.appearance &&
+      RecoverySurfaceStyle() == preset.surface &&
+      RecoveryInterfaceSize() == preset.interface_size &&
+      (preset.wallpaper == ThemePresetWallpaper::kKeep ||
+       RecoveryWallpaperPath().empty());
+}
+
+bool ApplyThemePreset(const ThemePreset &preset) {
+  if (!RecoverySetAccentColor(preset.accent) ||
+      !RecoverySetAppearanceMode(preset.appearance) ||
+      !RecoverySetSurfaceStyle(preset.surface) ||
+      !RecoverySetInterfaceSize(preset.interface_size)) return false;
+  if (preset.wallpaper == ThemePresetWallpaper::kCanvas) {
+    if (!RecoverySetWallpaperPath(std::string())) return false;
+    wallpaper::Clear();
+  }
+  ApplyCurrentTheme();
+  return true;
+}
+
 void ThemeReset(Tools *state, ThemeSection section) {
   auto *reset = Button(state->list, "Reset section", [state, section] {
     Sheet(state->screen, "Reset section", "Restore defaults for this section?",
@@ -2191,6 +2218,24 @@ void BuildTheme(Tools *state) {
 void BuildThemeAppearance(Tools *state) {
   ThemePage(state, "Colors & style");
   ThemePreview(state);
+  auto *packs = ThemeGroup(state->list, "Themes");
+  for (size_t i = 0; i < kThemePresets.size(); ++i) {
+    const auto &preset = kThemePresets[i];
+    auto *card = ThemeChoice(packs, preset.name, "", ThemePresetActive(preset),
+        [state, preset] {
+      if (!ApplyThemePreset(preset)) {
+        Sheet(state->screen, "Theme unavailable",
+              "The selected appearance could not be stored.");
+        return;
+      }
+      RefreshTheme(state);
+    }, LV_SYMBOL_EDIT);
+    auto *heading = lv_obj_get_child(card, 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(heading, 0),
+                                Color(preset.accent), 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(heading, 1),
+                                Color(preset.accent_secondary), 0);
+  }
   auto *modes = ThemeGroup(state->list, "Appearance", 3);
   const char *names[]{"Graphite", "Light", "AMOLED"};
   const char *details[]{"Dark, textured and focused", "Warm white with subtle grain", "True black from edge to edge"};

@@ -18,7 +18,16 @@ inline constexpr bool Enabled() {
 #endif
 }
 
-enum class Provider { kKernelSU, kKernelSUNext, kSukiSU };
+enum class Provider {
+  kKernelSU,
+  kKernelSUNext,
+  kSukiSU,
+  kBakaSU,
+  kFinaSU,
+  kYukiSU,
+  kAPatch,
+  kFolkPatch,
+};
 enum class Job {
   kRefreshRelease,
   kPatch,
@@ -98,7 +107,13 @@ struct Request {
   Job job = Job::kRefreshRelease;
   Provider provider = Provider::kKernelSU;
   std::string slot;
+  // boot, init_boot or vendor_boot. APatch needs the kernel, which lives in
+  // boot on GKI devices; the KSU family normally targets init_boot.
+  std::string partition = "init_boot";
   std::string module_id;
+  // YukiSU only: SuperKey embedded into the patched LKM. Empty means the
+  // official manager signature is the only accepted authenticator.
+  std::string superkey;
   bool verify_target_kernel = false;
 };
 

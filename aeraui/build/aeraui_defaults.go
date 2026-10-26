@@ -93,6 +93,10 @@ func aeraUiLanguageFlags(ctx android.BaseContext) []string {
 }
 
 func aeraHostDefaults(ctx android.LoadHookContext) {
+	if err := aeraValidateBuildVariables(ctx); err != nil {
+		ctx.ModuleErrorf("%s", err)
+	}
+
 	type props struct {
 		Target struct {
 			Android struct {

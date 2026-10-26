@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated": "2026-10-23",
+  "generated": "2026-10-24",
   "architecture": "aarch64",
   "providers": [
     {
@@ -38,6 +38,52 @@
         {"kmi":"android16-6.12","name":"lkm-aarch64-android16-6.12_kernelsu.ko","size":512888,"sha256":"6bd6632b27cb80de73537cc47bc7cf505a1fd5437830efbe019c289226fd34f0","archive":false},
         {"kmi":"android17-6.18","name":"lkm-aarch64-android17-6.18_kernelsu.ko","size":481944,"sha256":"7fb235ec7cdf4441a83d4d116273c35f03fa326eed3153b0e722982eb9594cfe","archive":false}
       ]
+    },
+    {
+      "id": "bakasu",
+      "name": "BakaSU",
+      "repository": "Baka-SU/BakaSU",
+      "version": "",
+      "assets": []
+    },
+    {
+      "id": "finasu",
+      "name": "FinaSU",
+      "repository": "LyraVoid/FinaSU",
+      "version": "",
+      "assets": []
+    },
+    {
+      "id": "yukisu",
+      "name": "YukiSU",
+      "repository": "Rouyashiki/YukiSU",
+      "version": "v1.7.0",
+      "assets": [
+        {"kmi":"android12-5.10","name":"android12-5.10_kernelsu.ko","size":1252296,"sha256":"9e52ef92606b7356102f43f9ef77376ab2f07d6fd0016be7708df1175227e806","archive":false},
+        {"kmi":"android13-5.10","name":"android13-5.10_kernelsu.ko","size":1179696,"sha256":"81cb2e5bdee6232027f58063c911c821b12c4f8d19dceccf12cdde02e3447b05","archive":false},
+        {"kmi":"android13-5.15","name":"android13-5.15_kernelsu.ko","size":1254296,"sha256":"21540a501f1b435d3fcfe56cbe3fe69d721047657a6f1953de65c3fe01f681f7","archive":false},
+        {"kmi":"android14-5.15","name":"android14-5.15_kernelsu.ko","size":1558376,"sha256":"43b818f63a807fa59d292f9ad42c9ce5a088c36140efe6738849478e06710e67","archive":false},
+        {"kmi":"android14-6.1","name":"android14-6.1_kernelsu.ko","size":1239512,"sha256":"53cb3028eaa81c39d5e6792a6a72ad60845d0a2efd573c455043af53dd298230","archive":false},
+        {"kmi":"android15-6.6","name":"android15-6.6_kernelsu.ko","size":1001808,"sha256":"30a3ecf8091affc282f723a90a6043a893dca3ea9c0456cb668e29678410333e","archive":false},
+        {"kmi":"android16-6.12","name":"android16-6.12_kernelsu.ko","size":1132112,"sha256":"f89f5a0363cbcd62f49838f7db2a5e56a0bb95ff41257684c41629e49f8ea776","archive":false},
+        {"kmi":"android17-6.18","name":"android17-6.18_kernelsu.ko","size":1074696,"sha256":"9763badcfd623810a37cfbf53e0e0b50c48d1c98e5a0974b08b8311325c977b4","archive":false}
+      ]
+    },
+    {
+      "id": "apatch",
+      "name": "APatch",
+      "repository": "bmax121/APatch",
+      "version": "",
+      "engine": "kptools",
+      "assets": []
+    },
+    {
+      "id": "folkpatch",
+      "name": "FolkPatch",
+      "repository": "LyraVoid/FolkPatch",
+      "version": "",
+      "engine": "kptools",
+      "assets": []
     }
   ]
 }

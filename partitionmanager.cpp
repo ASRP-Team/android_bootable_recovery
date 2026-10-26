@@ -503,6 +503,16 @@ void inline Process_ResetProps(TWPartition *ven, TWPartition *odm) {
 
 static inline std::string KM_Ver_From_Manifest(std::string ver) {
 	TWFunc::Get_Service_From_Manifest("/vendor", "android.hardware.keymaster", ver);
+	if (ver.empty()) {
+		// Android 15+ vendors usually expose KeyMint rather than Keymaster.
+		// lib_android_keymaster_keymint_utils bridges it onto the keymaster
+		// 4.x client, so the 4.x fallback below stays correct; this probe is
+		// diagnostic only and does not change the selected version.
+		std::string keymint;
+		TWFunc::Get_Service_From_Manifest("/vendor", "android.hardware.security.keymint", keymint);
+		if (!keymint.empty())
+			LOGINFO("Keymaster_Ver::KeyMint service '%s' detected; using the keymaster 4.x bridge\n", keymint.c_str());
+	}
 	#ifdef OF_NO_KEYMASTER_VER_4X
 	LOGINFO("Keymaster_Ver::OF_NO_KEYMASTER_VER_4X is enabled; keymaster_ver will be set to '%s'\n", ver.c_str());
 	#else

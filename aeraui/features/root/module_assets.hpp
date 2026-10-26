@@ -17,6 +17,24 @@ inline std::vector<std::string> ModuleAssetNames(Provider provider,
     case Provider::kSukiSU:
       return {"lkm-aarch64-" + kmi + "_kernelsu.ko",
               "aarch64-" + kmi + "-lkm.zip"};
+    case Provider::kBakaSU:
+      return {"lkm-aarch64-" + kmi + "_kernelsu.ko",
+              "aarch64_" + kmi + "_kernelsu.ko",
+              kmi + "_kernelsu.ko",
+              "aarch64-" + kmi + "-lkm.zip"};
+    case Provider::kFinaSU:
+      return {"lkm-aarch64-" + kmi + "_kernelsu.ko",
+              "aarch64_" + kmi + "_kernelsu.ko",
+              kmi + "_kernelsu.ko",
+              "finasu-aarch64-" + kmi + ".ko",
+              "aarch64-" + kmi + "-lkm.zip"};
+    case Provider::kYukiSU:
+      return {kmi + "_kernelsu.ko"};
+    // KernelPatch providers are patched with kptools + kpimg instead of a
+    // KernelSU LKM, so there is no downloadable kernel module asset.
+    case Provider::kAPatch:
+    case Provider::kFolkPatch:
+      return {};
   }
   return {};
 }

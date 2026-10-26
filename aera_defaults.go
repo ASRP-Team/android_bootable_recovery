@@ -22,6 +22,10 @@ import (
 	"android/soong/android"
 )
 
+func aeraValidateBuildVariables(ctx android.BaseContext) error {
+	return validateAeraBuildVariables(func(name string) string { return getMakeVars(ctx, name) })
+}
+
 func aeraGlobalFlags(ctx android.BaseContext) []string {
 	var aeraFlags []string
 

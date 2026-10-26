@@ -9,6 +9,7 @@
 
 #include "root_manager.hpp"
 #include "ui_components.hpp"
+#include "phone_keyboard.hpp"
 
 namespace aeraui {
 namespace {
@@ -32,7 +33,8 @@ struct RootUi {
   lv_obj_t *manager_button = nullptr;
   lv_obj_t *module_list = nullptr;
   lv_obj_t *module_summary = nullptr;
-  lv_obj_t *provider_buttons[3] = {};
+  lv_obj_t *provider_buttons[8] = {};
+  lv_obj_t *partition_buttons[3] = {};
   lv_obj_t *slot_buttons[2] = {};
   lv_timer_t *timer = nullptr;
   ActionCallback callback = nullptr;
@@ -40,6 +42,10 @@ struct RootUi {
   root::Provider provider = root::Provider::kKernelSU;
   root::Job active_job = root::Job::kRefreshRelease;
   std::string slot = "a";
+  std::string partition = "init_boot";
+  // YukiSU only: optional SuperKey used to authenticate the manager app.
+  // Kept in memory for this session; never written to storage or receipts.
+  std::string superkey;
   root::Status device;
   root::PatchInfo patch;
   std::vector<root::Module> modules;
@@ -89,6 +95,9 @@ void SetBusy(RootUi *state, bool busy) {
   for (auto *button : state->provider_buttons)
     if (button) busy ? lv_obj_add_state(button, LV_STATE_DISABLED)
                      : lv_obj_remove_state(button, LV_STATE_DISABLED);
+  for (auto *button : state->partition_buttons)
+    if (button) busy ? lv_obj_add_state(button, LV_STATE_DISABLED)
+                     : lv_obj_remove_state(button, LV_STATE_DISABLED);
   for (auto *button : state->slot_buttons)
     if (button) busy ? lv_obj_add_state(button, LV_STATE_DISABLED)
                      : lv_obj_remove_state(button, LV_STATE_DISABLED);
@@ -109,7 +118,10 @@ void SetBusy(RootUi *state, bool busy) {
 void LoadSnapshot(RootUi *state) {
   root::Status device = root::Probe();
   const root::Provider providers[] = {root::Provider::kKernelSU,
-      root::Provider::kKernelSUNext, root::Provider::kSukiSU};
+      root::Provider::kKernelSUNext, root::Provider::kSukiSU,
+      root::Provider::kBakaSU, root::Provider::kFinaSU,
+      root::Provider::kYukiSU, root::Provider::kAPatch,
+      root::Provider::kFolkPatch};
   for (root::Provider provider : providers)
     root::BundledRelease(provider, device.kmi);
   const std::string slot = state->slot.empty() ? device.slot : state->slot;
@@ -150,7 +162,11 @@ void Start(RootUi *state, const root::Request &request) {
 }
 
 void ConfirmPatch(RootUi *state) {
-  if (!state->device.kmi_supported || !state->device.init_boot_available ||
+  const bool kernel_patch = state->provider == root::Provider::kAPatch ||
+                            state->provider == root::Provider::kFolkPatch;
+  if ((!kernel_patch && !state->device.kmi_supported) ||
+      (!kernel_patch && state->partition == "init_boot" &&
+       !state->device.init_boot_available) ||
       !state->device.storage_ready) {
     Sheet(state->screen, "Cannot patch this kernel",
           state->device.error.empty() ? "The kernel compatibility check failed."
@@ -159,12 +175,22 @@ void ConfirmPatch(RootUi *state) {
   }
   const auto release = root::CachedRelease(state->provider);
   std::string text = i18n::Format(
-      "Provider\n%s\n\nExact kernel interface\n%s\n\nTarget\n"
-      "init_boot_%s\n\nAERA will verify the exact matching module, create "
-      "a full rollback image, let ksud patch init_boot, verify it, and only "
-      "then write the selected slot.",
+      "Provider\n%s\n\nExact kernel interface\n%s\n\nTarget\n%s_%s\n\n",
       root::ProviderName(state->provider), state->device.kmi.c_str(),
-      state->slot.c_str());
+      state->partition.c_str(), state->slot.c_str());
+  if (kernel_patch) {
+    text += i18n::Format(
+        "AERA creates a full rollback image, lets kptools patch %s with the "
+        "kpimg you supplied, verifies the result, and only then writes the "
+        "selected slot.",
+        state->partition.c_str());
+  } else {
+    text += i18n::Format(
+        "AERA verifies the exact matching module, creates a full rollback "
+        "image, lets ksud patch %s, verifies it, and only then writes the "
+        "selected slot.",
+        state->partition.c_str());
+  }
   if (release.available) {
     text += i18n::Format("\n\nSelected release\n%s • %s",
                          release.version.c_str(), release.asset_name.c_str());
@@ -174,25 +200,79 @@ void ConfirmPatch(RootUi *state) {
                         : "Online release — the verified asset will be downloaded.");
   }
   Sheet(state->screen,
-        i18n::Format("Patch init_boot_%s?", state->slot.c_str()), text,
+        i18n::Format("Patch %s_%s?", state->partition.c_str(), state->slot.c_str()),
+        text,
         [state] {
           root::Request request;
           request.job = root::Job::kPatch;
           request.provider = state->provider;
           request.slot = state->slot;
+          request.partition = state->partition;
+          request.superkey = state->superkey;
           Start(state, request);
         });
 }
 
+// YukiSU authenticates its manager by package name plus APK signature by
+// default. A SuperKey is an optional extra authenticator that ksud bakes into
+// the patched LKM, so it has to be entered before patching. APatch and
+// FolkPatch use the same idea through kptools.
+void ShowSuperKeyPrompt(RootUi *state) {
+  const bool kernel_patch = state->provider == root::Provider::kAPatch ||
+                            state->provider == root::Provider::kFolkPatch;
+  auto *overlay = lv_obj_create(state->screen);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay, kMainCanvas, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_all(overlay, 0, 0);
+  auto *title = Label(overlay, kernel_patch ? "SuperKey" : "YukiSU SuperKey",
+                      &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(title, 64, 24);
+  auto *hint = Label(overlay,
+      kernel_patch
+          ? "Optional. This key authenticates root for the KernelPatch manager; "
+            "leave empty to keep the default key."
+          : "Leave empty to trust only the official manager signature. The key "
+            "stays in memory for this session and is written into the patched "
+            "boot image.",
+      &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(hint, 64, 96);
+  lv_obj_set_width(hint, 1184);
+  auto *input = TextArea(overlay);
+  lv_obj_set_pos(input, 64, 170);
+  lv_obj_set_size(input, 1184, 96);
+  lv_textarea_set_one_line(input, true);
+  lv_textarea_set_max_length(input, 64);
+  lv_textarea_set_text(input, state->superkey.c_str());
+  auto *keyboard = lv_keyboard_create(overlay);
+  phone_keyboard::Apply(keyboard);
+  lv_keyboard_set_textarea(keyboard, input);
+  auto *apply = Button(overlay, "Patch now", [state, overlay, input] {
+    state->superkey = lv_textarea_get_text(input);
+    lv_obj_delete_async(overlay);
+    ConfirmPatch(state);
+  });
+  StyleRootButton(apply);
+  lv_obj_set_pos(apply, 64, 286);
+  lv_obj_set_size(apply, 580, 100);
+  auto *cancel = Button(overlay, "Cancel",
+                        [overlay] { lv_obj_delete_async(overlay); });
+  StyleRootButton(cancel);
+  lv_obj_set_pos(cancel, 680, 286);
+  lv_obj_set_size(cancel, 568, 100);
+}
+
 void ConfirmRollback(RootUi *state) {
   Sheet(state->screen,
-        i18n::Format("Restore init_boot_%s?", state->slot.c_str()),
+        i18n::Format("Restore %s_%s?", state->partition.c_str(), state->slot.c_str()),
         "AERA will restore the newest verified full partition backup for this "
         "slot and verify the partition readback before reporting success.",
         [state] {
           root::Request request;
           request.job = root::Job::kRollback;
           request.slot = state->slot;
+          request.partition = state->partition;
           Start(state, request);
         });
 }
@@ -341,15 +421,17 @@ void RefreshUi(RootUi *state) {
   }
   i18n::BindLabel(state->hero_detail, detail.c_str());
 
-  for (size_t i = 0; i < 3; ++i)
+  for (size_t i = 0; i < 8; ++i)
     SetSelected(state->provider_buttons[i], static_cast<size_t>(state->provider) == i);
+  SetSelected(state->partition_buttons[0], state->partition == "boot");
+  SetSelected(state->partition_buttons[1], state->partition == "init_boot");
+  SetSelected(state->partition_buttons[2], state->partition == "vendor_boot");
   SetSelected(state->slot_buttons[0], state->slot == "a");
   SetSelected(state->slot_buttons[1], state->slot == "b");
 
   std::string patch_status = i18n::Format(
-      state->patch.patched ? "init_boot_%s is patched"
-                           : "init_boot_%s is stock",
-      state->slot.c_str());
+      state->patch.patched ? "%s_%s is patched" : "%s_%s is stock",
+      state->partition.c_str(), state->slot.c_str());
   i18n::BindLabel(state->patch_status, patch_status.c_str());
   std::string patch_detail = state->patch.detail;
   const auto release = root::CachedRelease(state->provider);
@@ -460,7 +542,7 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   Header(screen, "Root Manager", "Kernel patching and module control, powered by ksud.",
          callback, context);
   const bool landscape = Landscape(screen);
-  state->list = Scroll(screen, landscape ? 340 : 452, landscape ? 1040 : 2320);
+  state->list = Scroll(screen, landscape ? 340 : 452, landscape ? 1040 : 2900);
 
   auto *hero = lv_obj_create(state->list);
   Panel(hero, 38, kMainSheet);
@@ -485,39 +567,66 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   auto *provider_title = Label(state->list, "ROOT PROVIDER", &lv_font_montserrat_20, kMuted);
   lv_obj_set_pos(provider_title, 18, 278);
   const root::Provider providers[] = {root::Provider::kKernelSU,
-      root::Provider::kKernelSUNext, root::Provider::kSukiSU};
-  for (size_t i = 0; i < 3; ++i) {
+      root::Provider::kKernelSUNext, root::Provider::kSukiSU,
+      root::Provider::kBakaSU, root::Provider::kFinaSU,
+      root::Provider::kYukiSU, root::Provider::kAPatch,
+      root::Provider::kFolkPatch};
+  for (size_t i = 0; i < sizeof(providers) / sizeof(providers[0]); ++i) {
     state->provider_buttons[i] = Button(state->list, root::ProviderName(providers[i]),
         [state, provider = providers[i]] {
           if (state->busy.load()) return;
           state->provider = provider;
+          // KernelPatch modifies the kernel itself, which lives in boot on GKI
+          // devices; the KSU family defaults to init_boot.
+          const bool kernel_patch = provider == root::Provider::kAPatch ||
+                                    provider == root::Provider::kFolkPatch;
+          state->partition = kernel_patch ? "boot" : "init_boot";
           root::BundledRelease(provider, state->device.kmi);
           RefreshUi(state);
         });
-    lv_obj_set_pos(state->provider_buttons[i], static_cast<int>(i) * 432, 320);
-    lv_obj_set_size(state->provider_buttons[i], 412, 104);
+    // Four per row: eight providers no longer fit on a single 1312 px line.
+    lv_obj_set_pos(state->provider_buttons[i],
+                   18 + static_cast<int>(i % 4) * 322,
+                   320 + static_cast<int>(i / 4) * 112);
+    lv_obj_set_size(state->provider_buttons[i], 306, 104);
     StyleRootButton(state->provider_buttons[i]);
   }
 
+  auto *partition_title = Label(state->list, "TARGET PARTITION",
+                                &lv_font_montserrat_20, kMuted);
+  lv_obj_set_pos(partition_title, 18, 556);
+  const char *partitions[] = {"boot", "init_boot", "vendor_boot"};
+  for (size_t i = 0; i < 3; ++i) {
+    state->partition_buttons[i] = Button(state->list, partitions[i],
+        [state, value = std::string(partitions[i])] {
+          if (state->busy.load()) return;
+          state->partition = value;
+          RefreshUi(state);
+        });
+    lv_obj_set_pos(state->partition_buttons[i], 18 + static_cast<int>(i) * 428, 592);
+    lv_obj_set_size(state->partition_buttons[i], 420, 96);
+    StyleRootButton(state->partition_buttons[i]);
+  }
+
   auto *slot_title = Label(state->list, "TARGET SLOT", &lv_font_montserrat_20, kMuted);
-  lv_obj_set_pos(slot_title, 18, 462);
+  lv_obj_set_pos(slot_title, 18, 712);
   for (size_t i = 0; i < 2; ++i) {
     const std::string slot(1, i ? 'b' : 'a');
-    state->slot_buttons[i] = Button(state->list, ("init_boot_" + slot).c_str(),
+    state->slot_buttons[i] = Button(state->list, ("Slot " + std::string(1, i ? 'B' : 'A')).c_str(),
         [state, slot] {
           if (state->busy.load()) return;
           state->slot = slot;
           state->patch = root::InspectSlot(slot);
           RefreshUi(state);
         });
-    lv_obj_set_pos(state->slot_buttons[i], static_cast<int>(i) * 652, 504);
-    lv_obj_set_size(state->slot_buttons[i], 632, 104);
+    lv_obj_set_pos(state->slot_buttons[i], static_cast<int>(i) * 652, 748);
+    lv_obj_set_size(state->slot_buttons[i], 632, 100);
     StyleRootButton(state->slot_buttons[i]);
   }
 
   auto *patch_card = lv_obj_create(state->list);
   Panel(patch_card, 34, kMainSheet);
-  lv_obj_set_pos(patch_card, 0, 646);
+  lv_obj_set_pos(patch_card, 0, 876);
   lv_obj_set_size(patch_card, 1312, 358);
   state->patch_status = Label(patch_card, "Inspecting init_boot…", &lv_font_montserrat_36, kText);
   lv_obj_set_pos(state->patch_status, 32, 28);
@@ -534,7 +643,13 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   lv_obj_set_style_radius(state->progress, 7, LV_PART_MAIN);
   lv_obj_set_style_radius(state->progress, 7, LV_PART_INDICATOR);
   state->patch_button = Button(patch_card, "Verify & patch", [state] {
-    ConfirmPatch(state);
+    if (state->provider == root::Provider::kYukiSU ||
+        state->provider == root::Provider::kAPatch ||
+        state->provider == root::Provider::kFolkPatch) {
+      ShowSuperKeyPrompt(state);
+    } else {
+      ConfirmPatch(state);
+    }
   });
   StyleRootButton(state->patch_button);
   lv_obj_set_pos(state->patch_button, 32, 220);
@@ -557,7 +672,7 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
 
   auto *manager_card = lv_obj_create(state->list);
   Panel(manager_card, 34, kMainSheet);
-  lv_obj_set_pos(manager_card, 0, 1040);
+  lv_obj_set_pos(manager_card, 0, 1268);
   lv_obj_set_size(manager_card, 1312, 258);
   auto *manager_plate = lv_obj_create(manager_card);
   Panel(manager_plate, 22, IconBackground());
@@ -590,20 +705,20 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   lv_obj_set_size(state->manager_button, 420, 106);
 
   auto *modules_title = Label(state->list, "MODULES", &lv_font_montserrat_20, kMuted);
-  lv_obj_set_pos(modules_title, 18, 1340);
+  lv_obj_set_pos(modules_title, 18, 1566);
   state->module_summary = Label(state->list, "Reading installed modules…",
                                 &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_set_pos(state->module_summary, 18, 1380);
+  lv_obj_set_pos(state->module_summary, 18, 1606);
   auto *refresh = Button(state->list, "Check updates", [state] {
     root::Request request; request.job = root::Job::kRefreshModules;
     Start(state, request);
   });
   StyleRootButton(refresh);
-  lv_obj_set_pos(refresh, 962, 1330);
+  lv_obj_set_pos(refresh, 962, 1556);
   lv_obj_set_size(refresh, 350, 96);
   state->module_list = lv_obj_create(state->list);
   Clear(state->module_list);
-  lv_obj_set_pos(state->module_list, 0, 1450);
+  lv_obj_set_pos(state->module_list, 0, 1666);
   lv_obj_set_size(state->module_list, 1312, 1200);
   lv_obj_remove_flag(state->module_list, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -617,7 +732,9 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   state->worker = std::thread([state] {
     root::Status device = root::Probe();
     const root::Provider providers[] = {root::Provider::kKernelSU,
-        root::Provider::kKernelSUNext, root::Provider::kSukiSU};
+        root::Provider::kKernelSUNext, root::Provider::kSukiSU,
+        root::Provider::kBakaSU, root::Provider::kFinaSU,
+        root::Provider::kYukiSU};
     for (root::Provider provider : providers)
       root::BundledRelease(provider, device.kmi);
     const std::string slot = device.slot;

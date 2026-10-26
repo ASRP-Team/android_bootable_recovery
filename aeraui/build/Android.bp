@@ -10,7 +10,8 @@ bootstrap_go_package {
         "aeraui_defaults.go",
         "../../soong/copy.go",
         "../../soong/makevars.go",
-        "../../aera_defaults.go"
+        "../../aera_defaults.go",
+        "../../aera_validation.go"
     ],
     pluginFor: ["soong_build"]
 }

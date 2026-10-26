@@ -137,6 +137,8 @@ struct JobRequest {
   bool payload_direct = false;
   bool payload_full = false; // Every image is mandatory except explicitly protected partitions.
   bool payload_override_protection = false; // Explicit manual Advanced selection only.
+  bool ota = false; // Install through the existing OTA/update-binary path.
+  bool ota_verify_signature = false; // Per-OTA override of the zip verification preference.
 };
 inline bool PayloadTargetMatches(const std::string &name, const std::string &path) {
   return path == "/" + name || (name == "system" && path == "/system_root");
@@ -200,6 +202,7 @@ int RecoveryRunPcBackup(const JobRequest &request);
 bool RecoveryDeleteBackup(const std::string &folder);
 bool RecoveryBackupCanUpload(const std::string &folder);
 std::string RecoverySlot();
+bool RecoveryAbDevice();
 std::string RecoveryBootSlot();
 std::string RecoveryVersion();
 std::string RecoveryBuildType();
