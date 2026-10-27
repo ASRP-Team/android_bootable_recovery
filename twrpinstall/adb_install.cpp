@@ -31,6 +31,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <map>
 #include <thread>
@@ -66,13 +67,28 @@ pid_t GetMiniAdbdPid() {
   return child.load(std::memory_order_acquire);
 }
 
+bool PrepareAdbSideload() {
+  if (GetMiniAdbdPid() > 0) return false;
+  sideload_cancel_requested.store(false, std::memory_order_release);
+  return true;
+}
+
 bool CancelAdbSideload() {
   sideload_cancel_requested.store(true, std::memory_order_release);
   const pid_t pid = GetMiniAdbdPid();
   if (pid <= 0) return true;
-  struct stat st {};
-  stat(FUSE_SIDELOAD_HOST_EXIT_PATHNAME, &st);
-  if (kill(pid, SIGTERM) == 0) return true;
+  if (kill(pid, SIGTERM) == 0) {
+    // minadbd normally closes its command and progress sockets immediately.
+    // Do not leave recovery stuck in sideload forever if it fails to exit.
+    std::thread([pid] {
+      for (int attempt = 0; attempt < 20; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (child.load(std::memory_order_acquire) != pid) return;
+      }
+      if (child.load(std::memory_order_acquire) == pid) kill(pid, SIGKILL);
+    }).detach();
+    return true;
+  }
   return errno == ESRCH;
 }
 
@@ -91,8 +107,9 @@ static void ListenForSideloadProgress(
 }
 
 static bool SetUsbConfig(const std::string& state) {
-  android::base::SetProperty("sys.usb.config", state);
-  return android::base::WaitForProperty("sys.usb.state", state);
+  if (!android::base::SetProperty("sys.usb.config", state)) return false;
+  return android::base::WaitForProperty(
+      "sys.usb.state", state, std::chrono::seconds(10));
 }
 
 // Parses the minadbd command in |message|; returns MinadbdCommand::kError upon errors.
@@ -409,6 +426,9 @@ int twrp_sideload(const char* install_file,
 
   // Save the usb state to restore after the sideload operation.
   std::string usb_state = android::base::GetProperty("sys.usb.state", "none");
+  // A prior interrupted session must never be restored without a minadbd
+  // owner. RecoveryRunSideload will restore MTP separately when necessary.
+  if (usb_state == "sideload") usb_state = "adb";
   // Clean up state and stop adbd.
   if (usb_state != "none" && !SetUsbConfig("none")) {
     LOG(ERROR) << "Failed to clear USB config";

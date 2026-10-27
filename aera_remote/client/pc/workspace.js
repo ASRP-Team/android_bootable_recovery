@@ -396,7 +396,7 @@ function updateInstallationChoice() {
   $('confirmInstall').textContent=fast?'Fast flash':extract?'Extract images':advanced?'Flash selected':state.job?.save_path?'Save file':state.job?.plugin_install?'Install plugin':state.job?.partition?'Flash image':'Install ZIP';
   $('methodSummary').hidden=!info?.is_payload;
   $('methodSummary').textContent=extract?`Destination: ${state.info?.extraction_root||'Current storage / AERA/Extracted'}`:info?.is_payload?
-    `${fast||advanced?'Target: current slot '+info.fast_slot+' (unchanged)':'Method: normal package installer'}\nKeep current ABL: ${state.info?.preserve_abl?'On / '+(overridden.includes('abl')?'manual override':fast||advanced?'not flashed':'protected'):'Off'}\nKeep AERA installed: ${state.info?.preserve_recovery?'On / '+(overridden.includes('recovery')?'manual override':fast||advanced?'not flashed':'protected'):'Off'}`:'';
+    `${fast||advanced?'Target: current slot '+info.fast_slot+' (unchanged)':'Method: normal package installer'}\nKeep current ABL: ${state.info?.preserve_abl?'On / '+(overridden.includes('abl')?'manual override':fast||advanced?'not flashed':'protected'):'Off'}\nKeep AERA installed: ${state.info?.preserve_recovery?'On / '+(overridden.includes('recovery')?'manual override':fast||advanced?'not flashed':'protected'):'Off'}${state.info?.preserve_splash?'\nKeep splash: '+(overridden.includes('splash')?'manual override':fast||advanced?'not flashed':'protected'):''}`:'';
   $('payloadCount').textContent=`${names.length} selected / ${size(images.reduce((total,partition)=>total+(partition.bytes||0),0))}`;
   updateConfirmEnabled();
 }

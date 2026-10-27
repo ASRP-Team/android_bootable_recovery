@@ -42,6 +42,7 @@ int main() {
   assert((hello.flags & kFeatureMetrics) != 0);
   assert((hello.flags & kFeatureBackNavigation) != 0);
   assert(!session.Supports(kFeatureDesktop));
+  assert(!session.Supports(kFeatureClipboard));
   const Message resume = ReceiveHost(pair[1]);
   assert(resume.kind == Kind::kLifecycle);
   assert(resume.value == static_cast<uint32_t>(Lifecycle::kResume));
@@ -108,6 +109,12 @@ int main() {
   assert(extended.flags == (3 | kOptionalFeatures));
   assert(session.Supports(kOptionalFeatures));
   (void)ReceiveHost(pair[1]);
+  static_assert(static_cast<uint32_t>(Kind::kGetClipboard) == 22);
+  static_assert(static_cast<uint32_t>(Kind::kClipboardResult) == 73);
+  SendWorker(pair[1], Kind::kGetClipboard, 71);
+  assert(session.Poll().at(0).kind == Kind::kGetClipboard);
+  assert(session.Send(Kind::kClipboardResult, 71, 0, kClipboardComplete));
+  assert(ReceiveHost(pair[1]).kind == Kind::kClipboardResult);
   SendWorker(pair[1], Kind::kSetBackground, 10, 1);
   assert(session.Poll().at(0).kind == Kind::kSetBackground);
   SendWorker(pair[1], Kind::kAddProgress, 9, 6500);

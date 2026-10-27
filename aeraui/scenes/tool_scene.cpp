@@ -1255,27 +1255,40 @@ void PreferenceColumn(lv_obj_t *object, int gap = 12) {
 lv_obj_t *PreferenceEntry(Tools *state, const char *symbol,
                           const char *title, const std::string &description,
                           Handler action, bool toggle = false) {
+  const bool card = state != nullptr && state->tool == Action::kPreferences;
   auto *row = lv_button_create(state->list);
   Clear(row);
-  lv_obj_set_style_bg_color(row, kMainSelected, LV_STATE_PRESSED);
+  if (card) {
+    Panel(row, 28, kMainPanel);
+    Interactive(row, kMainSelected);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_color(row, kMainLine, 0);
+    lv_obj_set_style_border_opa(row, LV_OPA_30, 0);
+  } else {
+    lv_obj_set_style_bg_color(row, kMainSelected, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_color(row, kMainLine, 0);
+    lv_obj_set_style_border_opa(row, LV_OPA_30, 0);
+    lv_obj_set_style_radius(row, 0, 0);
+  }
   if (action) OnClick(row, std::move(action));
   lv_obj_set_width(row, LV_PCT(100));
   lv_obj_set_height(row, LV_SIZE_CONTENT);
-  lv_obj_set_style_min_height(row, 154, 0);
-  lv_obj_set_style_pad_all(row, 24, 0);
+  lv_obj_set_style_min_height(row, card ? 170 : 154, 0);
+  lv_obj_set_style_pad_all(row, card ? 28 : 24, 0);
   lv_obj_set_style_pad_column(row, 28, 0);
-  lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(row, 1, 0);
-  lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
-  lv_obj_set_style_border_color(row, kMainLine, 0);
-  lv_obj_set_style_border_opa(row, LV_OPA_30, 0);
-  lv_obj_set_style_radius(row, 0, 0);
   lv_obj_set_style_transform_scale(row, 256, LV_STATE_PRESSED);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                        LV_FLEX_ALIGN_CENTER);
-  auto *icon = Label(row, symbol, &lv_font_montserrat_32, kAccent);
-  lv_obj_set_width(icon, 56);
+  if (card) {
+    IconPlate(row, symbol, kAccent, kAccentSoft, 78);
+  } else {
+    auto *icon = Label(row, symbol, &lv_font_montserrat_32, kAccent);
+    lv_obj_set_width(icon, 56);
+  }
   auto *text = lv_obj_create(row);
   Clear(text);
   lv_obj_remove_flag(text, LV_OBJ_FLAG_CLICKABLE);
@@ -1691,8 +1704,19 @@ const char *DockName() {
   return names[std::clamp(static_cast<int>(RecoveryDockLayout()), 0, kDockLayoutMax)];
 }
 
+void ThemeSurfaceCard(lv_obj_t *object, bool interactive = true);
+
 void ThemePage(Tools *state, const char *title) {
   Header(state->screen, title, "", state->callback, state->context);
+  if (state->tool != Action::kTheme) {
+    auto *back = Button(state->screen, LV_SYMBOL_LEFT "  Theme Engine",
+                        [state] { Open(state, Action::kBack); });
+    lv_obj_set_size(back, 390, 104);
+    lv_obj_align(back, LV_ALIGN_TOP_RIGHT, -64,
+                 Landscape(state->screen) ? 184 : 232);
+    ThemeSurfaceCard(back);
+    lv_obj_set_style_radius(back, 32, 0);
+  }
   const int top = Landscape(state->screen) ? 330 : 410;
   state->list = Scroll(state->screen, top,
       std::max(1, static_cast<int>(lv_obj_get_height(state->screen)) -
@@ -1702,9 +1726,6 @@ void ThemePage(Tools *state, const char *title) {
   lv_obj_set_style_pad_all(state->list, 12, 0);
   lv_obj_set_style_pad_bottom(state->list, 36, 0);
   lv_obj_set_scrollbar_mode(state->list, LV_SCROLLBAR_MODE_ACTIVE);
-  if (state->tool != Action::kTheme)
-    PreferenceEntry(state, LV_SYMBOL_LEFT, "Theme Engine", "",
-                    [state] { Open(state, Action::kBack); }, true);
 }
 
 void RestoreThemeScroll(Tools *state) {
@@ -1776,11 +1797,39 @@ lv_obj_t *ThemeChoice(lv_obj_t *parent, const char *name,
   return choice;
 }
 
+lv_obj_t *ThemeColorChoice(lv_obj_t *parent, const char *name, bool selected,
+                           Handler action, uint32_t rgb,
+                           bool colour_wheel = false) {
+  auto *choice = ThemeChoice(parent, name, "", selected, std::move(action));
+  auto *heading = lv_obj_get_child(choice, 0);
+  lv_obj_t *swatch = nullptr;
+  if (colour_wheel) {
+    swatch = HueSaturationDisk(heading, 64);
+  } else {
+    swatch = lv_obj_create(heading);
+    Clear(swatch);
+    lv_obj_set_size(swatch, 64, 64);
+    lv_obj_set_style_radius(swatch, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(swatch, Color(rgb), 0);
+    lv_obj_set_style_bg_opa(swatch, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(swatch, 2, 0);
+    lv_obj_set_style_border_color(swatch, kMainLine, 0);
+    lv_obj_set_style_border_opa(swatch, LV_OPA_50, 0);
+    lv_obj_remove_flag(swatch, LV_OBJ_FLAG_CLICKABLE);
+  }
+  lv_obj_move_to_index(swatch, 0);
+  return choice;
+}
+
 void ThemeRange(Tools *state, lv_obj_t *parent, const char *title, int value,
                  int minimum, int maximum,
                  std::function<void(int, bool)> change) {
   auto *section = lv_obj_create(parent);
   Clear(section);
+  Panel(section, 28, kMainSheet);
+  lv_obj_set_style_border_width(section, 1, 0);
+  lv_obj_set_style_border_color(section, kMainLine, 0);
+  lv_obj_set_style_border_opa(section, LV_OPA_30, 0);
   PreferenceColumn(section, 34);
   lv_obj_set_style_pad_all(section, 28, 0);
   auto *heading = lv_obj_create(section);
@@ -2050,6 +2099,32 @@ void ApplyCurrentTheme() {
   lv_obj_report_style_change(nullptr);
 }
 
+void ThemeSurfaceCard(lv_obj_t *object, bool interactive) {
+  Panel(object, 28, kMainSheet);
+  if (interactive) Interactive(object, kMainSelected);
+  lv_obj_set_style_border_side(object, LV_BORDER_SIDE_FULL, 0);
+  lv_obj_set_style_border_width(object, 1, 0);
+  lv_obj_set_style_border_color(object, kMainLine, 0);
+  lv_obj_set_style_border_opa(object, LV_OPA_30, 0);
+}
+
+void ThemeBottomSpacer(lv_obj_t *parent) {
+  auto *spacer = lv_obj_create(parent);
+  Clear(spacer);
+  lv_obj_remove_flag(spacer, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(spacer, LV_PCT(100), 1);
+  lv_obj_set_flex_grow(spacer, 1);
+}
+
+void StyleThemeReset(lv_obj_t *reset) {
+  ThemeSurfaceCard(reset);
+  lv_obj_set_style_radius(reset, 28, 0);
+  lv_obj_set_size(reset, LV_PCT(100), 124);
+  if (lv_obj_get_child_count(reset) > 0)
+    lv_obj_set_style_text_align(lv_obj_get_child(reset, 0),
+                                LV_TEXT_ALIGN_CENTER, 0);
+}
+
 bool ThemePresetActive(const ThemePreset &preset) {
   return RecoveryAccentColor() == preset.accent &&
       RecoveryAppearanceMode() == preset.appearance &&
@@ -2073,6 +2148,7 @@ bool ApplyThemePreset(const ThemePreset &preset) {
 }
 
 void ThemeReset(Tools *state, ThemeSection section) {
+  ThemeBottomSpacer(state->list);
   auto *reset = Button(state->list, "Reset section", [state, section] {
     Sheet(state->screen, "Reset section", "Restore defaults for this section?",
           [state, section] {
@@ -2089,7 +2165,7 @@ void ThemeReset(Tools *state, ThemeSection section) {
       if (AutoSaveSettings(state)) Open(state, state->tool);
     }, 0, false, SheetPresentation::kStandard, "Swipe to confirm");
   });
-  lv_obj_set_size(reset, LV_PCT(100), 124);
+  StyleThemeReset(reset);
 }
 
 void ThemePreview(Tools *state) {
@@ -2188,15 +2264,51 @@ void BuildTheme(Tools *state) {
     lv_obj_set_style_pad_row(grid, 12, 0);
     state->list = grid;
   }
+  const bool landscape = Landscape(state->screen);
   for (const auto &category : categories) {
-    auto *row = PreferenceEntry(state, category.icon, category.title, category.detail,
-                    [state, action = category.action] { Open(state, action); });
-    if (Landscape(state->screen)) {
-      lv_obj_set_width(row, LV_PCT(49));
-      lv_obj_set_style_min_height(row, 130, 0);
-    }
+    const int card_height = landscape ? 150 : 174;
+    auto *row = lv_button_create(state->list);
+    Clear(row);
+    OnClick(row, [state, action = category.action] { Open(state, action); });
+    lv_obj_set_size(row, LV_PCT(landscape ? 49 : 100), card_height);
+    Panel(row, 32, kMainSheet);
+    Interactive(row, kMainSelected);
+    lv_obj_set_style_border_side(row, LV_BORDER_SIDE_FULL, 0);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_border_color(row, kMainLine, 0);
+    lv_obj_set_style_border_opa(row, LV_OPA_30, 0);
+
+    auto *plate = lv_obj_create(row);
+    Clear(plate);
+    Panel(plate, 28, kMainPanel);
+    lv_obj_remove_flag(plate, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(plate, 92, 92);
+    lv_obj_align(plate, LV_ALIGN_LEFT_MID, 28, 0);
+    auto *glyph = Label(plate, category.icon, &lv_font_montserrat_32, kAccent);
+    lv_obj_center(glyph);
+
+    auto *text = lv_obj_create(row);
+    Clear(text);
+    lv_obj_remove_flag(text, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_pos(text, 148, 0);
+    lv_obj_set_size(text, LV_PCT(68), LV_PCT(100));
+    lv_obj_set_flex_flow(text, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(text, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(text, 8, 0);
+    auto *name = Label(text, category.title, &lv_font_montserrat_32, kText);
+    lv_obj_set_width(name, LV_PCT(100));
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    auto *detail = Label(text, category.detail.c_str(), &lv_font_montserrat_24, kMuted);
+    lv_obj_set_width(detail, LV_PCT(100));
+    lv_label_set_long_mode(detail, LV_LABEL_LONG_DOT);
+    auto *arrow = Label(row, LV_SYMBOL_RIGHT, &lv_font_montserrat_28, kMuted);
+    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -28, 0);
   }
   state->list = page_list;
+  // Absorb any unused viewport height so the destructive reset action stays
+  // at the bottom of the page instead of immediately following the choices.
+  ThemeBottomSpacer(state->list);
   auto *reset = Button(state->list, "Reset theme settings", [state] {
     Sheet(state->screen, "Reset theme settings",
           "Restore default colors, appearance, wallpaper, layout, font and lock screen?",
@@ -2211,7 +2323,7 @@ void BuildTheme(Tools *state) {
       if (AutoSaveSettings(state)) Open(state, Action::kTheme);
     }, 0, false, SheetPresentation::kStandard, "Swipe to confirm");
   });
-  lv_obj_set_size(reset, LV_PCT(100), 124);
+  StyleThemeReset(reset);
   RestoreThemeScroll(state);
 }
 
@@ -2248,16 +2360,16 @@ void BuildThemeAppearance(Tools *state) {
     });
   auto *accents = ThemeGroup(state->list, "Accent palettes", 3);
   for (const auto &preset : kAccentPresets) {
-    auto *card = ThemeChoice(accents, preset.name, "", RecoveryAccentColor() == preset.rgb,
+    ThemeColorChoice(accents, preset.name, RecoveryAccentColor() == preset.rgb,
         [state, preset] {
       if (!RecoverySetAccentColor(preset.rgb)) return;
       ApplyAccent(preset.rgb);
       RefreshTheme(state);
-    }, LV_SYMBOL_TINT);
-    lv_obj_set_style_text_color(lv_obj_get_child(lv_obj_get_child(card, 0), 0), Color(preset.rgb), 0);
+    }, preset.rgb);
   }
-  ThemeChoice(accents, "User select", "", !IsPresetAccent(RecoveryAccentColor()),
-              [state] { OpenAccentPicker(state); }, LV_SYMBOL_PLUS);
+  ThemeColorChoice(accents, "User select", !IsPresetAccent(RecoveryAccentColor()),
+                   [state] { OpenAccentPicker(state); },
+                   RecoveryAccentColor(), true);
   auto *surfaces = ThemeGroup(state->list, "Surface style");
   const char *surface_names[]{"Solid", "Frosted", "Outline", "Elevated"};
   const char *surface_details[]{"Opaque and clean", "Translucent blur", "Borders, little fill", "Shadow and depth"};
@@ -2444,15 +2556,14 @@ void BuildThemeNavigation(Tools *state) {
 
 void BuildThemeLock(Tools *state) {
   ThemePage(state, "Lock screen");
-  // Keep the actual lock renderer visible while only the selected tab scrolls.
-  lv_obj_set_height(state->list, 178);
-  lv_obj_remove_flag(state->list, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_scrollbar_mode(state->list, LV_SCROLLBAR_MODE_OFF);
-  auto *back_row = state->list;
+  // This editor owns a custom preview-and-tabs layout rather than ThemePage's
+  // regular scrolling content area.
+  lv_obj_delete(state->list);
+  state->list = nullptr;
   const bool landscape = Landscape(state->screen);
   const int pw = landscape ? 300 : 280;
   const int ph = pw * 3168 / 1440;
-  const int top = (landscape ? 330 : 410) + 194;
+  const int top = landscape ? 330 : 410;
   auto *preview = lv_obj_create(state->screen);
   Clear(preview);
   lv_obj_set_size(preview, pw, ph);
@@ -2524,8 +2635,11 @@ void BuildThemeLock(Tools *state) {
     range("Clock size", &LockTheme::clock_size, 60, 180);
     auto *colors = ThemeGroup(state->list, "Clock colour");
     const char *names[]{"Follow accent", "White", "User select"};
-    for (int i = 0; i < 3; ++i)
-      ThemeChoice(colors, names[i], "", editor->theme.colour == i, [state, editor, colors, i] {
+    for (int i = 0; i < 3; ++i) {
+      const uint32_t rgb = i == 0 ? RecoveryAccentColor()
+          : i == 1 ? 0xffffff : editor->theme.rgb;
+      ThemeColorChoice(colors, names[i], editor->theme.colour == i,
+          [state, editor, colors, i] {
         if (i == 2) {
           OpenAccentPicker(state, [editor, state, colors](uint32_t rgb) {
             editor->theme.colour = 2;
@@ -2549,7 +2663,8 @@ void BuildThemeLock(Tools *state) {
           editor->Save();
           RefreshTheme(state);
         }
-      }, LV_SYMBOL_TINT);
+      }, rgb, i == 2);
+    }
   } else if (state->lock_tab == 1) {
     choices("Date style", &LockTheme::date_style, {"Full", "Short", "Numeric", "Stacked", "Hidden"});
     range("Date size", &LockTheme::date_size, 60, 200);
@@ -2593,7 +2708,6 @@ void BuildThemeLock(Tools *state) {
   }
   ThemeReset(state, ThemeSection::kLock);
   RestoreThemeScroll(state);
-  lv_obj_move_foreground(back_row);
 }
 
 void BuildPreferences(Tools *state) {
@@ -2609,8 +2723,9 @@ void BuildPreferences(Tools *state) {
     lv_obj_set_width(state->list, 1400);
   }
   lv_obj_set_flex_flow(state->list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(state->list, 8, 0);
-  lv_obj_set_style_pad_bottom(state->list, 32, 0);
+  lv_obj_set_style_pad_all(state->list, 12, 0);
+  lv_obj_set_style_pad_row(state->list, 18, 0);
+  lv_obj_set_style_pad_bottom(state->list, 40, 0);
   lv_obj_set_scrollbar_mode(state->list, LV_SCROLLBAR_MODE_ACTIVE);
 
   PreferenceSection(state, "Display & regional");
@@ -2657,8 +2772,12 @@ void BuildPreferences(Tools *state) {
 
   auto *brightness = lv_obj_create(state->list);
   Clear(brightness);
+  Panel(brightness, 28, kMainPanel);
+  lv_obj_set_style_border_width(brightness, 1, 0);
+  lv_obj_set_style_border_color(brightness, kMainLine, 0);
+  lv_obj_set_style_border_opa(brightness, LV_OPA_30, 0);
   PreferenceColumn(brightness, 12);
-  lv_obj_set_style_pad_all(brightness, 24, 0);
+  lv_obj_set_style_pad_all(brightness, 28, 0);
   auto *brightness_heading = lv_obj_create(brightness);
   Clear(brightness_heading);
   lv_obj_set_width(brightness_heading, LV_PCT(100));
@@ -2704,8 +2823,12 @@ void BuildPreferences(Tools *state) {
   if (RecoveryScreenTimeoutSupported()) {
     auto *timeout = lv_obj_create(state->list);
     Clear(timeout);
+    Panel(timeout, 28, kMainPanel);
+    lv_obj_set_style_border_width(timeout, 1, 0);
+    lv_obj_set_style_border_color(timeout, kMainLine, 0);
+    lv_obj_set_style_border_opa(timeout, LV_OPA_30, 0);
     PreferenceColumn(timeout, 12);
-    lv_obj_set_style_pad_all(timeout, 24, 0);
+    lv_obj_set_style_pad_all(timeout, 28, 0);
     auto *heading = lv_obj_create(timeout);
     Clear(heading);
     lv_obj_set_size(heading, LV_PCT(100), LV_SIZE_CONTENT);
@@ -2875,8 +2998,7 @@ void BuildPreferences(Tools *state) {
             if (AutoSaveSettings(state)) Open(state, Action::kPreferences);
           }, 0, false, SheetPresentation::kStandard, "Swipe to confirm");
   });
-  lv_obj_set_width(reset, LV_PCT(100));
-  lv_obj_set_height(reset, 124);
+  StyleThemeReset(reset);
 }
 
 void RefreshBatterySettings(Tools *state) {
@@ -2941,14 +3063,19 @@ void RefreshTemperatureSettings(Tools *state) {
 
 void BuildTemperatureSettings(Tools *state) {
   Header(state->screen, "SysInfo", "", state->callback, state->context);
+  auto *back = Button(state->screen, LV_SYMBOL_LEFT "  Status bar",
+                      [state] { Open(state, Action::kBack); });
+  lv_obj_set_size(back, 350, 104);
+  lv_obj_align(back, LV_ALIGN_TOP_RIGHT, -64,
+               Landscape(state->screen) ? 184 : 232);
+  ThemeSurfaceCard(back);
+  lv_obj_set_style_radius(back, 32, 0);
   const int top = Landscape(state->screen) ? 340 : 452;
   state->list = Scroll(state->screen, top,
       std::max(1, int(lv_obj_get_height(state->screen)) - top - NavigationHeight(state->screen) - 28));
   lv_obj_set_flex_flow(state->list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(state->list, 16, 0);
   lv_obj_set_style_pad_bottom(state->list, 32, 0);
-  PreferenceEntry(state, LV_SYMBOL_LEFT, "Status bar", "",
-                  [state] { Open(state, Action::kBack); }, true);
   PreferenceSection(state, "Sensors");
   state->temperature_saved = RecoveryTemperatureDisplay();
   auto *main_list = state->list;
@@ -2956,6 +3083,7 @@ void BuildTemperatureSettings(Tools *state) {
                          "Show decimal places", "Show labels", "Temperature colors", "CPU usage", "RAM usage"};
   auto add_toggle = [&](int i) {
     auto *row = PreferenceEntry(state, LV_SYMBOL_SETTINGS, titles[i], "", {}, true);
+    ThemeSurfaceCard(row);
     auto *toggle = lv_switch_create(row);
     state->temperature_toggles[i] = toggle;
     OnClick(row, [state, i] {
@@ -3043,6 +3171,9 @@ void BuildTemperatureSettings(Tools *state) {
     }, LV_EVENT_ALL, state);
   }
   state->list = main_list;
+  state->summary = Label(main_list, "", &lv_font_montserrat_24, kMuted);
+  lv_obj_set_width(state->summary, LV_PCT(100));
+  ThemeBottomSpacer(main_list);
   auto *reset = Button(main_list, "Reset SysInfo", [state] {
     Sheet(state->screen, "Reset SysInfo", "Restore default SysInfo settings?", [state] {
       if (!RecoverySetTemperatureDisplay({})) {
@@ -3056,9 +3187,7 @@ void BuildTemperatureSettings(Tools *state) {
       RefreshStatusBars();
     }, 0, false, SheetPresentation::kStandard, "Swipe to confirm");
   });
-  lv_obj_set_size(reset, LV_PCT(100), 124);
-  state->summary = Label(main_list, "", &lv_font_montserrat_24, kMuted);
-  lv_obj_set_width(state->summary, LV_PCT(100));
+  StyleThemeReset(reset);
   RefreshTemperatureSettings(state);
 }
 
@@ -3145,6 +3274,7 @@ void BuildStatusBarSettings(Tools *state) {
     });
   }
   auto *percentage_row = PreferenceEntry(state, LV_SYMBOL_BATTERY_FULL, "Battery percentage", "", {}, true);
+  ThemeSurfaceCard(percentage_row);
   state->battery_percentage_row = percentage_row;
   auto *percentage_toggle = lv_switch_create(percentage_row);
   StyleSwitch(percentage_toggle, RecoveryBatteryPercentage());
@@ -3208,6 +3338,7 @@ void BuildStatusBarSettings(Tools *state) {
   PreferenceSection(state, "Network");
   const auto display = RecoveryWifiStatusDisplay();
   auto *speed_row = PreferenceEntry(state, LV_SYMBOL_WIFI, "Network speed", "", {}, true);
+  ThemeSurfaceCard(speed_row);
   auto *speed_toggle = lv_switch_create(speed_row);
   StyleSwitch(speed_toggle, display.show_speed);
   OnClick(speed_row, [state, speed_toggle] {
@@ -3221,6 +3352,7 @@ void BuildStatusBarSettings(Tools *state) {
     RefreshStatusBars();
   });
   auto *name_row = PreferenceEntry(state, LV_SYMBOL_WIFI, "Show network name", "", {}, true);
+  ThemeSurfaceCard(name_row);
   auto *name_toggle = lv_switch_create(name_row);
   StyleSwitch(name_toggle, display.show_name);
   OnClick(name_row, [state, name_toggle] {
@@ -3233,8 +3365,9 @@ void BuildStatusBarSettings(Tools *state) {
     StyleSwitch(name_toggle, display.show_name);
     RefreshStatusBars();
   });
-  PreferenceEntry(state, LV_SYMBOL_SETTINGS, "SysInfo", "",
-                  [state] { Open(state, Action::kTemperatures); });
+  auto *sysinfo = PreferenceEntry(state, LV_SYMBOL_SETTINGS, "SysInfo", "",
+                                  [state] { Open(state, Action::kTemperatures); });
+  ThemeSurfaceCard(sysinfo);
   state->summary = Label(state->list, "", &lv_font_montserrat_24, kMuted);
   lv_obj_set_width(state->summary, LV_PCT(100));
   RefreshBatterySettings(state);

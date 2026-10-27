@@ -108,6 +108,7 @@ std::string RecoveryBootSlot() { return "a"; }
 bool RecoveryDataLocked() { return locked; }
 bool RecoveryPreservationSupported() { return true; }
 bool RecoveryAblPreservationSupported() { return true; }
+bool RecoverySplashPreservationSupported() { return true; }
 bool RecoveryPreference(Preference) { return true; }
 SnapshotCowStatus RecoverySnapshotCowStatus() { return {}; }
 PayloadFlashProgress RecoveryPayloadFlashProgress() {

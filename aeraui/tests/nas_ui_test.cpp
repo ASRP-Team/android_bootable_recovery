@@ -29,6 +29,19 @@ bool Attach(lv_obj_t *, bool) { return false; }
 namespace aeraui {
 NasStatus RecoveryNasStatus() { return g_status; }
 WifiConnection RecoveryWifiConnection() { return {true, "Home Wi-Fi", -50}; }
+WifiStatus RecoveryWifiStatus() {
+  WifiStatus status;
+  status.supported = true;
+  status.enabled = true;
+  status.connected = true;
+  status.ssid = "Home Wi-Fi";
+  status.networks = {
+      {"Home Wi-Fi", "WPA2", true, true},
+      {"Office", "WPA3", true, false},
+      {"Guest", "OPEN", false, false},
+  };
+  return status;
+}
 NasConfig RecoverySavedNasConfig(const std::string &protocol) {
   auto config = g_status.config;
   config.type = protocol;
@@ -142,7 +155,7 @@ int main(int argc, char **argv) {
       auto *screen = lv_obj_create(nullptr);
       BuildNasScene(screen, [](Action, void *) {}, nullptr);
       lv_screen_load(screen); Tick();
-      Click(screen, "Not set");
+      Click(screen, "Choose a private key");
       assert(Find(screen, i18n::Translate("Select a private key")));
       Click(screen, "Internal storage", false);
       Click(screen, "nested", false);
@@ -162,7 +175,7 @@ int main(int argc, char **argv) {
       Click(screen, "SFTP", false);
       assert(Find(screen, i18n::Translate("Key passphrase")));
       g_status.config.password = "old-key-passphrase";
-      Click(screen, "Authentication");
+      Click(screen, "Password");
       assert(g_status.config.auth == "password" && g_status.config.password.empty());
       lv_screen_load(home); lv_obj_delete(screen); Tick();
     }
@@ -191,8 +204,15 @@ int main(int argc, char **argv) {
         assert(!g_status.config.auto_connect);
         Click(screen, "Auto-connect");
         assert(g_status.config.auto_connect && g_status.config.wifi_ssid == "Home Wi-Fi");
+        Click(screen, "Home Wi-Fi", false);
+        assert(Find(screen, i18n::Translate("Choose Wi-Fi network")));
+        assert(Find(screen, "Office"));
+        assert(!Find(screen, "Guest"));
+        Click(screen, "Office", false);
+        assert(g_status.config.wifi_ssid == "Office");
+        assert(!Find(screen, i18n::Translate("Choose Wi-Fi network")));
         Click(screen, "Auto-connect");
-        assert(!g_status.config.auto_connect && g_status.config.wifi_ssid == "Home Wi-Fi");
+        assert(!g_status.config.auto_connect && g_status.config.wifi_ssid == "Office");
         auto save = [&](const char *name) {
           if (!preview) return;
           png_image image{};
@@ -210,7 +230,10 @@ int main(int argc, char **argv) {
         auto *folders = Find(screen, i18n::Translate("Browse folders"));
         assert(advanced && folders);
         assert(lv_obj_get_width(advanced) == lv_obj_get_width(folders));
-        assert(lv_obj_get_y(advanced) > lv_obj_get_y(folders));
+        lv_area_t advanced_area{}, folders_area{};
+        lv_obj_get_coords(advanced, &advanced_area);
+        lv_obj_get_coords(folders, &folders_area);
+        assert(advanced_area.y1 > folders_area.y1);
         assert(Find(screen, i18n::Translate("Write cache")));
         Click(screen, "Browse folders");
         assert(lv_obj_has_state(Find(screen, i18n::Translate("Use this folder")), LV_STATE_DISABLED));

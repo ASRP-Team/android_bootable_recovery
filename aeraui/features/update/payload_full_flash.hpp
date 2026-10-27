@@ -12,6 +12,8 @@ inline std::set<std::string> ProtectedPartitions() {
     names.insert("abl");
   if (RecoveryPreservationSupported() && RecoveryPreference(Preference::kPreserveRecovery))
     names.insert("recovery");
+  if (RecoveryPreference(Preference::kPreserveSplash) && RecoverySplashPreservationSupported())
+    names.insert("splash");
   return names;
 }
 

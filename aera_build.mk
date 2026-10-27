@@ -67,6 +67,9 @@ ifneq ($(TW_INCLUDE_LIBRESETPROP),true)
    TW_INCLUDE_LIBRESETPROP := true
 endif
 
+# File manager archive browsing and extraction backend.
+TW_INCLUDE_7ZA := true
+
 # turn on magiskboot automatically
 OF_USE_MAGISKBOOT := 1
 OF_USE_MAGISKBOOT_FOR_ALL_PATCHES := 1

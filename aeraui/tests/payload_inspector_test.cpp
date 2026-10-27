@@ -401,6 +401,14 @@ TEST(PayloadTargets, NeverWritesRegularFilesAsPartitions) {
   ASSERT_EQ(pread(file.fd, contents, 9, 0), 9);
   EXPECT_EQ(std::string(contents, 9), "untouched");
 }
+TEST(PayloadTargets, LogicalTargetsRequireExactManifestCapacity) {
+  EXPECT_TRUE(TargetCapacityMatches(4096, 4096, true));
+  EXPECT_FALSE(TargetCapacityMatches(8192, 4096, true));
+  EXPECT_FALSE(TargetCapacityMatches(2048, 4096, true));
+  EXPECT_TRUE(TargetCapacityMatches(8192, 4096, false));
+  EXPECT_FALSE(TargetCapacityMatches(2048, 4096, false));
+  EXPECT_FALSE(TargetCapacityMatches(4096, 0, false));
+}
 namespace {
 void Put(std::vector<uint8_t> &v, size_t offset, uint64_t value, unsigned bytes) {
   for (unsigned i = 0; i < bytes; ++i) v.at(offset + i) = value >> (8 * i);

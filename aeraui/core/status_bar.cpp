@@ -552,13 +552,13 @@ void BuildShade(StatusState *state) {
   state->shade_download_title = Label(state->shade_download, "Downloading",
                                       &lv_font_montserrat_32, kText);
   lv_obj_set_pos(state->shade_download_title, 104, 16);
-  lv_obj_set_width(state->shade_download_title, content_width - 190);
-  lv_label_set_long_mode(state->shade_download_title, LV_LABEL_LONG_DOT);
+  SingleLineLabel(state->shade_download_title, content_width - 190,
+                  &lv_font_montserrat_32);
   state->shade_download_detail = Label(state->shade_download, "",
                                        &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(state->shade_download_detail, 104, 62);
-  lv_obj_set_width(state->shade_download_detail, content_width - 190);
-  lv_label_set_long_mode(state->shade_download_detail, LV_LABEL_LONG_DOT);
+  SingleLineLabel(state->shade_download_detail, content_width - 190,
+                  &lv_font_montserrat_24);
   state->shade_download_progress = lv_bar_create(state->shade_download);
   lv_obj_set_pos(state->shade_download_progress, 104, 102);
   lv_obj_set_size(state->shade_download_progress, content_width - 142, 8);
@@ -789,12 +789,18 @@ void RefreshShade(StatusState *state) {
   const int card_width = download.available && update.available ? (notice_width - 24) / 2 : notice_width;
   for (auto *card : {state->shade_download, state->shade_update})
     if (card) lv_obj_set_width(card, card_width);
-  for (auto *label : {state->shade_download_title, state->shade_download_detail,
-      state->shade_update_title, state->shade_update_detail})
-    if (label) {
-      lv_obj_set_width(label, card_width - 142);
-      lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
-    }
+  if (state->shade_download_title)
+    SingleLineLabel(state->shade_download_title, card_width - 142,
+                    &lv_font_montserrat_32);
+  if (state->shade_download_detail)
+    SingleLineLabel(state->shade_download_detail, card_width - 142,
+                    &lv_font_montserrat_24);
+  if (state->shade_update_title)
+    SingleLineLabel(state->shade_update_title, card_width - 142,
+                    &lv_font_montserrat_32);
+  if (state->shade_update_detail)
+    SingleLineLabel(state->shade_update_detail, card_width - 142,
+                    &lv_font_montserrat_24);
   if (state->shade_download_progress)
     lv_obj_set_width(state->shade_download_progress, card_width - 142);
   if (state->shade_download != nullptr) {

@@ -1693,6 +1693,11 @@ Status Probe() {
   }
   status.kmi = CaptureKsud({"boot-info", "current-kmi"});
   const auto supported = Lines(CaptureKsud({"boot-info", "supported-kmis"}));
+  if (std::find(supported.begin(), supported.end(), status.kmi) == supported.end()) {
+    const std::string inferred = ResolveKernelKmiFromRelease(status.kernel_release, supported);
+    if (std::find(supported.begin(), supported.end(), inferred) != supported.end())
+      status.kmi = inferred;
+  }
   status.kmi_supported = !status.kmi.empty() &&
       std::find(supported.begin(), supported.end(), status.kmi) != supported.end();
   std::string suffix = CaptureKsud({"boot-info", "slot-suffix"});
@@ -1725,6 +1730,7 @@ Status ProbeSlot(const std::string &slot) {
   device.init_boot_available = access(BlockFor("init_boot", slot).c_str(), R_OK | W_OK) == 0;
   const std::string boot = "/dev/block/by-name/boot_" + slot;
   const std::string work = std::string(kWork) + "/target-" + slot;
+  const auto supported = Lines(CaptureKsud({"boot-info", "supported-kmis"}));
   const uint64_t bytes = FileSize(boot);
   if (!device.ksud_available || bytes < 1024 * 1024 || bytes > 256 * 1024 * 1024 ||
       !EnsureDirectory(kWork) || !EnsureDirectory(work)) {
@@ -1759,13 +1765,12 @@ Status ProbeSlot(const std::string &slot) {
       if (count <= 0) break;
       read_bytes += static_cast<uint64_t>(count);
       tail.append(buffer.data(), static_cast<size_t>(count));
-      device.kmi = KernelKmiFromBanner(tail);
+      device.kmi = ResolveKernelKmiFromBanner(tail, supported);
       if (!device.kmi.empty()) break;
       if (tail.size() > 256) tail.erase(0, tail.size() - 256);
     }
     close(fd);
   }
-  const auto supported = Lines(CaptureKsud({"boot-info", "supported-kmis"}));
   device.kmi_supported = !device.kmi.empty() &&
       std::find(supported.begin(), supported.end(), device.kmi) != supported.end();
   device.error = !device.kmi_supported ? "The target kernel KMI could not be verified or is unsupported." :

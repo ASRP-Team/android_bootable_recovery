@@ -8,6 +8,8 @@
 #include "plugin_api/operations.hpp"
 #include "plugin_api/protocol.hpp"
 #include "plugin_api/session.hpp"
+#include "plugin_api/clipboard.hpp"
+#include "text_edit.hpp"
 #include "plugin_api/activity.hpp"
 #include "plugin_api/runtime.hpp"
 #include "plugins/plugin_manager.hpp"
@@ -78,6 +80,7 @@ struct GenericScene {
   web::Preparation preparation;
   plugin_api::Process process;
   plugin_api::Session session;
+  plugin_api::ClipboardTransfer clipboard;
   std::thread worker;
   lv_timer_t *timer = nullptr;
   std::string page_title;
@@ -588,6 +591,19 @@ void RequestOperation(GenericScene *scene,
 
 void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
   switch (message.kind) {
+    case plugin_api::Kind::kGetClipboard:
+    case plugin_api::Kind::kSetClipboard:
+    case plugin_api::Kind::kClipboardChunk: {
+      const bool allowed = scene->session.Supports(plugin_api::kFeatureClipboard) &&
+          scene->screen && scene->screen == lv_screen_active() &&
+          !scene->operation_pending && !ModalVisible(scene->screen);
+      const auto reply = scene->clipboard.Handle(message, allowed,
+          []() -> const std::string & { return text_edit::ClipboardText(); },
+          [](const std::string &text) { text_edit::SetClipboardText(text); });
+      scene->session.Send(reply.kind, reply.request_id, reply.value, reply.flags,
+                          reply.title, reply.text);
+      break;
+    }
     case plugin_api::Kind::kOpenDesktop: {
       unsigned width=message.value, height=message.flags;
       if(!width&&!height){width=960;height=540;}
@@ -865,6 +881,7 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
 }
 
 void DetachGenericScene(GenericScene *scene) {
+  scene->clipboard.Reset();
   if (scene->desktop_open) {
     ClosePluginDesktop();
     scene->desktop_open = false;
@@ -1059,6 +1076,7 @@ static void PollRuntime(GenericScene *scene) {
     for (const auto &message : scene->session.Poll())
       HandleMessage(scene, message);
     if (!scene->session.Connected()) {
+      scene->clipboard.Reset();
       scene->process.Stop(); scene->stopped = true;
       plugin_api::RemoveActivity(scene->plugin.id);
       SetStatus(scene, scene->session.Status()); return;

@@ -504,6 +504,10 @@ bool AeraAdbd::StopPairing()
 
 bool AeraAdbd::StopAll()
 {
+	std::string tcp_port = GetProp(kTcpPortProp);
+	if (tcp_port.empty()) tcp_port = GetProp("persist.adb.tcp.port");
+	const bool legacy_tcp = !tcp_port.empty() && tcp_port != "0" && tcp_port != "-1";
+	const bool wireless_only = GetProp(kAeraWifiOnlyProp) == "1";
 	StopPairing();
 	SetProp(kTlsEnableProp, "0");
 	SetProp(kTlsPortProp, "");
@@ -514,7 +518,9 @@ bool AeraAdbd::StopAll()
 		SetProp(kAeraWifiOnlyProp, "0");
 	} else {
 		SetProp(kAeraWifiOnlyProp, "0");
-		SetProp("ctl.restart", "adbd");
+		// TLS is stopped live by adbd's property observer. Restart only for a
+		// startup-only legacy TCP listener or to restore USB after wireless-only mode.
+		if (legacy_tcp || wireless_only) SetProp("ctl.restart", "adbd");
 	}
 	return true;
 }

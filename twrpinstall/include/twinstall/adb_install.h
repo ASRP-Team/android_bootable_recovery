@@ -31,4 +31,5 @@ int twrp_sideload(
     const char* install_file, Device::BuiltinAction* reboot_action,
     const SideloadProgressCallback& progress_callback = {});
 pid_t GetMiniAdbdPid();
+bool PrepareAdbSideload();
 bool CancelAdbSideload();

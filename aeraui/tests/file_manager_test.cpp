@@ -2,7 +2,9 @@
  * SPDX-License-Identifier: Apache-2.0 */
 #include "file_manager.hpp"
 
+#include <algorithm>
 #include <cassert>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -32,12 +34,14 @@ static std::string Read(const fs::path &path) {
 static Snapshot Execute(Operation operation,
                         const std::vector<std::string> &sources,
                         const std::string &destination = {},
-                        Conflict conflict = Conflict::kKeepBoth) {
+                        Conflict conflict = Conflict::kKeepBoth,
+                        const std::vector<std::string> &archive_members = {}) {
   Request request;
   request.operation = operation;
   request.sources = sources;
   request.destination = destination;
   request.conflict = conflict;
+  request.archive_members = archive_members;
   Progress progress;
   Run(request, progress);
   return progress.Get();
@@ -46,6 +50,16 @@ static Snapshot Execute(Operation operation,
 int main() {
   char pattern[] = "/tmp/aera-file-manager-test-XXXXXX";
   const fs::path root = mkdtemp(pattern);
+  assert(IsArchiveFile("backup.ZIP"));
+  assert(IsArchiveFile("images.tar.xz"));
+  assert(IsArchiveFile("firmware.rar"));
+  assert(!IsArchiveFile("notes.txt"));
+  assert(SafeArchiveEntryPath("folder/file.txt"));
+  assert(!SafeArchiveEntryPath("../outside"));
+  assert(!SafeArchiveEntryPath("folder/../../outside"));
+  assert(!SafeArchiveEntryPath("/absolute/path"));
+  assert(!SafeArchiveEntryPath("C:\\absolute\\path"));
+  assert(!SafeArchiveEntryPath("folder\\..\\outside"));
   const auto search_root = root / "search";
   fs::create_directories(search_root / "nested" / "needle-folder");
   fs::create_directories(search_root / ".hidden-folder");
@@ -236,6 +250,53 @@ int main() {
                    {(destination_root / "folder").string()});
   assert(result.success);
   assert(result.result_bytes >= 15);
+
+  if (access("/usr/bin/7z", X_OK) == 0) {
+    const fs::path archive_source = root / "archive-source";
+    const fs::path extract_target = root / "extract-target";
+    fs::create_directories(archive_source / "nested");
+    fs::create_directories(extract_target);
+    Write(archive_source / "nested" / "one.txt", "one");
+    Write(archive_source / "nested" / "two.txt", "two");
+    Write(archive_source / "top.txt", "top");
+    const fs::path archive = root / "sample.zip";
+    const std::string command = "cd " + archive_source.string() +
+        " && /usr/bin/7z a -bd -y " + archive.string() + " . >/dev/null";
+    assert(std::system(command.c_str()) == 0);
+    std::vector<ArchiveEntry> archive_entries;
+    std::string archive_error;
+    assert(ListArchive(archive.string(), archive_entries, archive_error));
+    assert(std::any_of(archive_entries.begin(), archive_entries.end(),
+                       [](const ArchiveEntry& entry) {
+                         return entry.path == "nested/one.txt" && !entry.directory;
+                       }));
+    result = Execute(Operation::kExtract, {archive.string()}, extract_target.string(),
+                     Conflict::kKeepBoth, {"nested/one.txt", "top.txt"});
+    assert(result.success);
+    assert(Read(extract_target / "nested" / "one.txt") == "one");
+    assert(!fs::exists(extract_target / "nested" / "two.txt"));
+    assert(Read(extract_target / "top.txt") == "top");
+    result = Execute(Operation::kExtract, {archive.string()}, extract_target.string());
+    assert(result.success);
+    assert(Read(extract_target / "nested (1)" / "two.txt") == "two");
+
+    const fs::path created_archive = root / "created.zip";
+    result = Execute(Operation::kCompress,
+                     {(archive_source / "nested").string(),
+                      (archive_source / "top.txt").string()},
+                     created_archive.string());
+    assert(result.success && fs::exists(created_archive));
+    archive_entries.clear();
+    assert(ListArchive(created_archive.string(), archive_entries, archive_error));
+    assert(std::any_of(archive_entries.begin(), archive_entries.end(),
+                       [](const ArchiveEntry& entry) {
+                         return entry.path == "nested/two.txt";
+                       }));
+    assert(std::any_of(archive_entries.begin(), archive_entries.end(),
+                       [](const ArchiveEntry& entry) {
+                         return entry.path == "top.txt";
+                       }));
+  }
 
   const fs::path large_source = root / "large.bin";
   const fs::path cancel_target = root / "cancel-target";

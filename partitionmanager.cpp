@@ -3857,7 +3857,7 @@ bool AeraMapLogicalPartition(const std::string& super_device, uint32_t metadata_
 	return android::fs_mgr::CreateLogicalPartition(params, mapped_path);
 }
 
-bool AeraGrowLogicalPartition(TWPartitionManager* manager, TWPartition* twrp_part,
+bool AeraResizeLogicalPartition(TWPartitionManager* manager, TWPartition* twrp_part,
 							  uint64_t requested_size) {
 	if (!manager || !twrp_part || !twrp_part->Get_Super_Status())
 		return false;
@@ -3892,13 +3892,16 @@ bool AeraGrowLogicalPartition(TWPartitionManager* manager, TWPartition* twrp_par
 		return false;
 	}
 	const uint64_t current_size = logical->size();
-	if (requested_size <= logical->size())
+	if (requested_size == current_size)
 		return true;
 	if (!builder->ResizePartition(logical, requested_size)) {
-		LOGERR("Not enough free space in logical group to grow '%s' from %llu to %llu bytes\n",
-			partition_name.c_str(), static_cast<unsigned long long>(logical->size()),
+		LOGERR("Unable to resize logical partition '%s' from %llu to %llu bytes\n",
+			partition_name.c_str(), static_cast<unsigned long long>(current_size),
 			static_cast<unsigned long long>(requested_size));
-		gui_err("The image is larger than the logical partition and its Super group has insufficient free space.");
+		if (requested_size > current_size)
+			gui_err("The image is larger than the logical partition and its Super group has insufficient free space.");
+		else
+			gui_err("Unable to shrink the logical partition to the image size.");
 		return false;
 	}
 	auto updated = builder->Export();
@@ -3953,9 +3956,9 @@ bool AeraGrowLogicalPartition(TWPartitionManager* manager, TWPartition* twrp_par
 	}
 	twrp_part->Set_Block_Device(mapped_path);
 	twrp_part->Update_Size(true);
-	LOGINFO("AERA grew logical partition '%s' from %llu to %llu bytes\n",
+	LOGINFO("AERA resized logical partition '%s' from %llu to %llu bytes\n",
 		partition_name.c_str(), static_cast<unsigned long long>(current_size),
-		static_cast<unsigned long long>(requested_size));
+		static_cast<unsigned long long>(logical->size()));
 	return true;
 }
 
@@ -4083,7 +4086,7 @@ bool TWPartitionManager::Prepare_Image_Flash_Target(const std::string& target,
 	auto* part = Find_Partition_By_Path(target);
 	if (!part) return false;
 	if (part->Get_Super_Status()) {
-		if (!part->UnMount(true) || !AeraGrowLogicalPartition(this, part, bytes)) return false;
+		if (!part->UnMount(true) || !AeraResizeLogicalPartition(this, part, bytes)) return false;
 	} else if (!part->Can_Flash_Img || part->Backup_Method != BM_DD || !part->Is_SlotSelect()) {
 		return false;
 	}
@@ -4209,7 +4212,7 @@ bool TWPartitionManager::Flash_Image(string& path, string& filename,
 			restore_dynamic_dependencies();
 			return false;
 		}
-		if (logical && !AeraGrowLogicalPartition(this, flash_part, expanded_size)) {
+		if (logical && !AeraResizeLogicalPartition(this, flash_part, expanded_size)) {
 			if (remount)
 				flash_part->Mount(false);
 			restore_dynamic_dependencies();

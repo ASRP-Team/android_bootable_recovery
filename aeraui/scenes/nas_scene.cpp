@@ -11,6 +11,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <strings.h>
 #include <sys/stat.h>
 #include <thread>
 #include <vector>
@@ -124,6 +125,8 @@ void Populate(NasUi *state);
 void DeferredPopulate(void *state) { Populate(static_cast<NasUi *>(state)); }
 void OpenBrowser(NasUi *state, const std::string &share = {},
                  const std::string &path = {});
+void ChooseWifiNetwork(NasUi *state);
+void ChoosePrivateKey(NasUi *state, const std::string &path);
 
 bool SaveConfig(NasUi *state, const NasConfig &config) {
   std::string error;
@@ -460,17 +463,19 @@ void Dispatch(NasUi *state, NasOperation operation) {
   state->callback(Action::kRunNasOperation, state->context);
 }
 
-void AddField(NasUi *state, int x, int y, Field field) {
+void AddField(NasUi *state, int x, int y, Field field,
+              lv_obj_t *parent = nullptr, int width = 640) {
+  if (parent == nullptr) parent = state->scene.list;
   std::string value = FieldValue(state->snapshot.config, field);
   if (field == Field::kPassword)
     value = value.empty() ? "Not set" : "Password saved";
   else if (value.empty())
     value = "Not set";
-  auto *card = lv_button_create(state->scene.list);
+  auto *card = lv_button_create(parent);
   Panel(card, 30, kMainSheet);
   Interactive(card, kMainSelected);
   lv_obj_set_pos(card, x, y);
-  lv_obj_set_size(card, 640, 160);
+  lv_obj_set_size(card, width, 160);
   lv_obj_set_style_transform_scale(card, 256, LV_STATE_PRESSED);
   lv_obj_set_style_border_width(card, 1, 0);
   lv_obj_set_style_border_color(card, kMainLine, 0);
@@ -482,7 +487,7 @@ void AddField(NasUi *state, int x, int y, Field field) {
   lv_obj_set_pos(name, 30, 26);
   auto *copy = Label(card, value.c_str(), &lv_font_montserrat_32, kText);
   lv_obj_set_pos(copy, 30, 78);
-  lv_obj_set_width(copy, 520);
+  lv_obj_set_width(copy, width - 120);
   lv_label_set_long_mode(copy, LV_LABEL_LONG_DOT);
   auto *edit = Label(card, LV_SYMBOL_RIGHT, &lv_font_montserrat_24,
                      kMutedStrong);
@@ -517,6 +522,229 @@ lv_obj_t *ProtocolButton(NasUi *state, lv_obj_t *parent, int x,
   lv_obj_center(label);
   OnClick(button, [state, type] { SelectProtocol(state, type); });
   return button;
+}
+
+lv_obj_t *AuthenticationButton(NasUi *state, lv_obj_t *parent, int x,
+                               const char *auth, const char *title) {
+  const bool selected = state->snapshot.config.auth == auth;
+  auto *button = lv_button_create(parent);
+  Panel(button, 28, kMainPanel);
+  Interactive(button, kMainSelected);
+  lv_obj_set_pos(button, x, 28);
+  lv_obj_set_size(button, 282, 112);
+  lv_obj_set_style_border_width(button, selected ? 2 : 1, 0);
+  lv_obj_set_style_border_color(button, selected ? kAccent : kMainLine, 0);
+  lv_obj_set_style_border_opa(button, selected ? LV_OPA_70 : LV_OPA_30, 0);
+  auto *label = Label(button, title, &lv_font_montserrat_28,
+                      selected ? kAccent : kText);
+  lv_obj_center(label);
+  OnClick(button, [state, auth] {
+    if (state->snapshot.mounted || state->busy ||
+        state->snapshot.config.auth == auth) return;
+    auto config = state->snapshot.config;
+    config.auth = auth;
+    config.password.clear();
+    if (SaveConfig(state, config)) Populate(state);
+  });
+  return button;
+}
+
+void StyleSwitch(lv_obj_t *toggle, bool enabled);
+
+int AddAutoConnectCard(NasUi *state, int y) {
+  const bool expanded = state->snapshot.config.auto_connect;
+  const int height = expanded ? 340 : 168;
+  auto *card = lv_obj_create(state->scene.list);
+  Panel(card, 32, kMainSheet);
+  lv_obj_set_pos(card, 0, y);
+  lv_obj_set_size(card, 1312, height);
+  lv_obj_set_style_border_width(card, 1, 0);
+  lv_obj_set_style_border_color(card, kMainLine, 0);
+  lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
+
+  auto *header = lv_button_create(card);
+  Clear(header);
+  Interactive(header, kMainSelected);
+  lv_obj_set_pos(header, 0, 0);
+  lv_obj_set_size(header, 1312, 168);
+  lv_obj_set_style_transform_scale(header, 256, LV_STATE_PRESSED);
+  auto *title = Label(header, "Auto-connect", &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(title, 32, 34);
+  auto *copy = Label(header, "Connect Wi-Fi before mounting network storage",
+                     &lv_font_montserrat_20, kMuted);
+  lv_obj_set_pos(copy, 32, 94);
+  auto *toggle = lv_switch_create(header);
+  StyleSwitch(toggle, expanded);
+  lv_obj_align(toggle, LV_ALIGN_RIGHT_MID, -32, 0);
+  OnClick(header, [state] {
+    if (state->busy) return;
+    auto config = state->snapshot.config;
+    const bool enabled = !config.auto_connect;
+    if (enabled && config.wifi_ssid.empty()) {
+      const auto wifi = RecoveryWifiConnection();
+      if (wifi.connected) config.wifi_ssid = wifi.ssid;
+    }
+    config.auto_connect = enabled;
+    if (SaveConfig(state, config)) Populate(state);
+  });
+
+  if (expanded) {
+    auto *network = lv_button_create(card);
+    Panel(network, 26, kMainPanel);
+    Interactive(network, kMainSelected);
+    lv_obj_set_pos(network, 28, 184);
+    lv_obj_set_size(network, 1256, 128);
+    lv_obj_set_style_transform_scale(network, 256, LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(network, 1, 0);
+    lv_obj_set_style_border_color(network, kMainLine, 0);
+    lv_obj_set_style_border_opa(network, LV_OPA_30, 0);
+    OnClick(network, [state] { ChooseWifiNetwork(state); });
+    auto *plate = lv_obj_create(network);
+    Panel(plate, 18, kMainSelected);
+    lv_obj_set_pos(plate, 22, 20);
+    lv_obj_set_size(plate, 88, 88);
+    auto *icon = Label(plate, LV_SYMBOL_WIFI, &lv_font_montserrat_36, kAccent);
+    lv_obj_center(icon);
+    auto *name = Label(network, "Wi-Fi network", &lv_font_montserrat_28, kText);
+    lv_obj_set_pos(name, 136, 18);
+    auto *ssid = Label(network,
+        state->snapshot.config.wifi_ssid.empty()
+            ? "Choose a saved network or enter an SSID"
+            : state->snapshot.config.wifi_ssid.c_str(),
+        &lv_font_montserrat_20, kMuted);
+    lv_obj_set_pos(ssid, 136, 72);
+    lv_obj_set_width(ssid, 980);
+    lv_label_set_long_mode(ssid, LV_LABEL_LONG_DOT);
+    auto *arrow = Label(network, LV_SYMBOL_RIGHT, &lv_font_montserrat_28,
+                        kMutedStrong);
+    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -28, 0);
+  }
+  AnimateEnter(card, 20 + static_cast<uint32_t>(y / 10), 9);
+  return height;
+}
+
+int AddAuthenticationCard(NasUi *state, int y) {
+  const bool expanded = state->snapshot.config.auth == "key";
+  const int height = expanded ? 340 : 168;
+  auto *card = lv_obj_create(state->scene.list);
+  Panel(card, 32, kMainSheet);
+  lv_obj_set_pos(card, 0, y);
+  lv_obj_set_size(card, 1312, height);
+  lv_obj_set_style_border_width(card, 1, 0);
+  lv_obj_set_style_border_color(card, kMainLine, 0);
+  lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
+  auto *title = Label(card, "Authentication", &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(title, 32, 34);
+  auto *copy = Label(card, "Choose how AERA signs in to your SFTP server",
+                     &lv_font_montserrat_20, kMuted);
+  lv_obj_set_pos(copy, 32, 94);
+  AuthenticationButton(state, card, 696, "password", "Password");
+  AuthenticationButton(state, card, 994, "key", "Private key");
+  if (expanded) {
+    auto *key = lv_button_create(card);
+    Panel(key, 26, kMainPanel);
+    Interactive(key, kMainSelected);
+    lv_obj_set_pos(key, 28, 184);
+    lv_obj_set_size(key, 1256, 128);
+    lv_obj_set_style_transform_scale(key, 256, LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(key, 1, 0);
+    lv_obj_set_style_border_color(key, kMainLine, 0);
+    lv_obj_set_style_border_opa(key, LV_OPA_30, 0);
+    OnClick(key, [state] { ChoosePrivateKey(state, {}); });
+    auto *plate = lv_obj_create(key);
+    Panel(plate, 18, kMainSelected);
+    lv_obj_set_pos(plate, 22, 20);
+    lv_obj_set_size(plate, 88, 88);
+    auto *icon = Label(plate, LV_SYMBOL_FILE, &lv_font_montserrat_36, kAccent);
+    lv_obj_center(icon);
+    auto *name = Label(key, "Private key", &lv_font_montserrat_28, kText);
+    lv_obj_set_pos(name, 136, 18);
+    const std::string value = state->snapshot.key_available
+        ? (state->snapshot.config.key_name.empty()
+            ? "Private key saved" : state->snapshot.config.key_name)
+        : "Choose a private key";
+    auto *selected = Label(key, value.c_str(), &lv_font_montserrat_20, kMuted);
+    lv_obj_set_pos(selected, 136, 72);
+    lv_obj_set_width(selected, 980);
+    lv_label_set_long_mode(selected, LV_LABEL_LONG_DOT);
+    auto *arrow = Label(key, LV_SYMBOL_RIGHT, &lv_font_montserrat_28,
+                        kMutedStrong);
+    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -28, 0);
+  }
+  AnimateEnter(card, 20 + static_cast<uint32_t>(y / 10), 9);
+  return height;
+}
+
+void AddBrowseFoldersCard(NasUi *state, int y) {
+  const auto &config = state->snapshot.config;
+  const std::string target = config.share +
+      (config.path.empty() ? "" : "/" + config.path);
+  auto *card = lv_button_create(state->scene.list);
+  Panel(card, 30, kMainPanel);
+  Interactive(card, kMainSelected);
+  lv_obj_set_pos(card, 0, y);
+  lv_obj_set_size(card, 1312, 160);
+  lv_obj_set_style_transform_scale(card, 256, LV_STATE_PRESSED);
+  lv_obj_set_style_border_width(card, 1, 0);
+  lv_obj_set_style_border_color(card, kMainLine, 0);
+  lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
+  OnClick(card, [state] { OpenBrowser(state); });
+  auto *plate = lv_obj_create(card);
+  Panel(plate, 22, kMainSelected);
+  lv_obj_set_pos(plate, 28, 30);
+  lv_obj_set_size(plate, 100, 100);
+  auto *icon = Label(plate, LV_SYMBOL_DIRECTORY, &lv_font_montserrat_40,
+                     kAccent);
+  lv_obj_center(icon);
+  auto *name = Label(card, "Browse folders", &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(name, 158, 28);
+  auto *copy = Label(card, target.c_str(), &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(copy, 158, 90);
+  lv_obj_set_width(copy, 1020);
+  lv_label_set_long_mode(copy, LV_LABEL_LONG_DOT);
+  auto *arrow = Label(card, LV_SYMBOL_RIGHT, &lv_font_montserrat_28,
+                      kMutedStrong);
+  lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -32, 0);
+  AnimateEnter(card, 20 + static_cast<uint32_t>(y / 10), 9);
+}
+
+int AddAdvancedSmbCard(NasUi *state, int y) {
+  const int height = state->advanced ? 552 : 168;
+  auto *card = lv_obj_create(state->scene.list);
+  Panel(card, 32, kMainSheet);
+  lv_obj_set_pos(card, 0, y);
+  lv_obj_set_size(card, 1312, height);
+  lv_obj_set_style_border_width(card, 1, 0);
+  lv_obj_set_style_border_color(card, kMainLine, 0);
+  lv_obj_set_style_border_opa(card, LV_OPA_30, 0);
+
+  auto *header = lv_button_create(card);
+  Clear(header);
+  Interactive(header, kMainSelected);
+  lv_obj_set_pos(header, 0, 0);
+  lv_obj_set_size(header, 1312, 168);
+  lv_obj_set_style_transform_scale(header, 256, LV_STATE_PRESSED);
+  auto *title = Label(header, "Advanced", &lv_font_montserrat_32, kText);
+  lv_obj_set_pos(title, 32, 34);
+  auto *copy = Label(header, "Share, remote path and domain settings",
+                     &lv_font_montserrat_20, kMuted);
+  lv_obj_set_pos(copy, 32, 94);
+  auto *arrow = Label(header, state->advanced ? LV_SYMBOL_UP : LV_SYMBOL_DOWN,
+                      &lv_font_montserrat_28, kMutedStrong);
+  lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -32, 0);
+  OnClick(header, [state] {
+    if (state->busy) return;
+    state->advanced = !state->advanced;
+    Populate(state);
+  });
+
+  if (state->advanced) {
+    AddField(state, 28, 184, Field::kShare, card, 618);
+    AddField(state, 666, 184, Field::kPath, card, 618);
+    AddField(state, 28, 364, Field::kDomain, card, 1256);
+  }
+  AnimateEnter(card, 20 + static_cast<uint32_t>(y / 10), 9);
+  return height;
 }
 
 void StyleSwitch(lv_obj_t *toggle, bool enabled) {
@@ -658,6 +886,94 @@ void ChoosePrivateKey(NasUi *state, const std::string &path = {}) {
   lv_obj_align(close, LV_ALIGN_BOTTOM_MID, 0, -90);
 }
 
+void ChooseWifiNetwork(NasUi *state) {
+  if (state->busy) return;
+  if (state->snapshot.mounted) {
+    Sheet(state->screen, "Network storage is mounted",
+          "Unmount it before changing the auto-connect network.");
+    return;
+  }
+
+  std::vector<std::string> saved;
+  for (const auto &network : RecoveryWifiStatus().networks) {
+    if (network.saved && !network.ssid.empty() &&
+        std::find(saved.begin(), saved.end(), network.ssid) == saved.end())
+      saved.push_back(network.ssid);
+  }
+  std::stable_sort(saved.begin(), saved.end(), [](const auto &a, const auto &b) {
+    return strcasecmp(a.c_str(), b.c_str()) < 0;
+  });
+
+  auto *overlay = lv_obj_create(state->screen);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  Clear(overlay);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  MainBackground(overlay);
+  lv_obj_update_layout(overlay);
+  const int width = lv_obj_get_width(overlay);
+  const int height = lv_obj_get_height(overlay);
+  auto *title = Label(overlay, "Choose Wi-Fi network",
+                      &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(title, 80, 130);
+  auto *detail = Label(overlay,
+      "Select a saved network or enter its SSID manually.",
+      &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(detail, 80, 210);
+
+  auto *list = lv_obj_create(overlay);
+  Clear(list);
+  lv_obj_set_pos(list, 64, 290);
+  lv_obj_set_size(list, width - 128, height - 650);
+  lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
+  int y = 0;
+  for (const auto &ssid : saved) {
+    const bool selected = state->snapshot.config.wifi_ssid == ssid;
+    auto *row = Row(list, y, LV_SYMBOL_WIFI, ssid,
+                    selected ? "Selected" : "Saved network",
+                    [state, overlay, ssid] {
+                      auto config = state->snapshot.config;
+                      config.wifi_ssid = ssid;
+                      if (SaveConfig(state, config)) {
+                        lv_obj_delete_async(overlay);
+                        Populate(state);
+                      }
+                    }, selected ? LV_SYMBOL_OK : LV_SYMBOL_RIGHT);
+    if (selected) {
+      lv_obj_set_style_border_width(row, 2, 0);
+      lv_obj_set_style_border_color(row, kAccent, 0);
+      lv_obj_set_style_border_opa(row, LV_OPA_70, 0);
+    }
+    y += 190;
+  }
+  if (saved.empty()) {
+    auto *empty = lv_obj_create(list);
+    Panel(empty, 30, kMainPanel);
+    lv_obj_set_pos(empty, 0, 0);
+    lv_obj_set_size(empty, width - 128, 180);
+    auto *empty_title = Label(empty, "No saved networks",
+                              &lv_font_montserrat_32, kText);
+    lv_obj_set_pos(empty_title, 32, 34);
+    auto *empty_copy = Label(empty,
+        "Save a network in Wi-Fi settings, or enter its SSID manually.",
+        &lv_font_montserrat_24, kMuted);
+    lv_obj_set_pos(empty_copy, 32, 98);
+  }
+
+  auto *manual = Button(overlay, "Enter SSID manually", [state, overlay] {
+    lv_obj_delete_async(overlay);
+    EditField(state, Field::kWifiNetwork);
+  }, true);
+  lv_obj_set_pos(manual, 64, height - 318);
+  lv_obj_set_size(manual, width - 128, 112);
+  auto *cancel = Button(overlay, "Cancel", [overlay] {
+    lv_obj_delete_async(overlay);
+  });
+  lv_obj_set_pos(cancel, 64, height - 180);
+  lv_obj_set_size(cancel, width - 128, 112);
+}
+
 void Populate(NasUi *state) {
   if (state == nullptr || state->scene.list == nullptr) return;
   lv_obj_clean(state->scene.list);
@@ -685,48 +1001,9 @@ void Populate(NasUi *state) {
   AnimateEnter(protocol, 10, 9);
 
   int y = 190;
-  SettingsRow(state->scene.list, y, "Auto-connect", "Wi-Fi network",
-      state->snapshot.config.auto_connect,
-      [state](bool enabled) {
-        if (state->busy) return false;
-        auto config = state->snapshot.config;
-        if (enabled && config.wifi_ssid.empty()) {
-          const auto wifi = RecoveryWifiConnection();
-          if (!wifi.connected) {
-            Sheet(state->screen, "Connect Wi-Fi first", "Wi-Fi network");
-            return false;
-          }
-          config.wifi_ssid = wifi.ssid;
-        }
-        config.auto_connect = enabled;
-        if (!SaveConfig(state, config)) return false;
-        lv_async_call(DeferredPopulate, state);
-        return true;
-      }, state->scene.detail);
-  y += 180;
-  auto *network = Row(state->scene.list, y, LV_SYMBOL_WIFI, "Wi-Fi network", "",
-      [state] { EditField(state, Field::kWifiNetwork); });
-  lv_label_set_text(lv_obj_get_child(network, 3),
-      state->snapshot.config.wifi_ssid.empty() ? i18n::Translate("Not set") : state->snapshot.config.wifi_ssid.c_str());
-  y += 180;
+  y += AddAutoConnectCard(state, y) + 22;
   if (state->snapshot.config.type == "sftp") {
-    const bool key = state->snapshot.config.auth == "key";
-    Row(state->scene.list, y, LV_SYMBOL_SETTINGS, "Authentication",
-        key ? "Private key" : "Password", [state] {
-          if (state->snapshot.mounted || state->busy) return;
-          auto config = state->snapshot.config;
-          config.auth = config.auth == "key" ? "password" : "key";
-          config.password.clear();
-          if (SaveConfig(state, config)) Populate(state);
-        });
-    y += 180;
-    if (key) {
-      Row(state->scene.list, y, LV_SYMBOL_FILE, "Private key",
-          state->snapshot.key_available ? (state->snapshot.config.key_name.empty() ?
-              "Private key" : state->snapshot.config.key_name) : "Not set",
-          [state] { ChoosePrivateKey(state); });
-      y += 180;
-    }
+    y += AddAuthenticationCard(state, y) + 22;
   }
   AddField(state, 0, y, Field::kHost);
   AddField(state, 672, y, Field::kUser);
@@ -739,40 +1016,9 @@ void Populate(NasUi *state) {
   }
   y += 180;
   if (state->snapshot.config.type == "smb") {
-    const auto &config = state->snapshot.config;
-    const std::string target = config.share + (config.path.empty() ? "" : "/" + config.path);
-    auto *folder = Row(state->scene.list, y, LV_SYMBOL_DIRECTORY, "Browse folders", "",
-        [state] { OpenBrowser(state); });
-    // Server names and remote paths are data, not translation keys.
-    lv_label_set_text(lv_obj_get_child(folder, 3), target.c_str());
+    AddBrowseFoldersCard(state, y);
     y += 180;
-    auto *advanced = Button(state->scene.list, "Advanced", [state] {
-      state->advanced = !state->advanced;
-      Populate(state);
-    });
-    lv_obj_set_pos(advanced, 0, y);
-    lv_obj_set_size(advanced, LV_PCT(100), 112);
-    lv_obj_set_style_bg_opa(advanced, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_bg_opa(advanced, LV_OPA_10, LV_STATE_PRESSED);
-    lv_obj_set_style_transform_scale(advanced, 256, LV_STATE_PRESSED);
-    lv_obj_set_style_radius(advanced, 0, 0);
-    lv_obj_set_style_border_width(advanced, 1, 0);
-    lv_obj_set_style_border_side(advanced, LV_BORDER_SIDE_TOP, 0);
-    lv_obj_set_style_border_color(advanced, kMainLine, 0);
-    lv_obj_set_style_border_opa(advanced, LV_OPA_30, 0);
-    auto *advanced_label = lv_obj_get_child(advanced, 0);
-    lv_obj_set_style_text_color(advanced_label, kMutedStrong, 0);
-    lv_obj_align(advanced_label, LV_ALIGN_LEFT_MID, 32, 0);
-    auto *arrow = Label(advanced, state->advanced ? LV_SYMBOL_UP : LV_SYMBOL_DOWN,
-                        &lv_font_montserrat_24, kMuted);
-    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -32, 0);
-    if (state->advanced) {
-      y += 132;
-      AddField(state, 0, y, Field::kShare);
-      AddField(state, 672, y, Field::kPath);
-      y += 180;
-      AddField(state, 0, y, Field::kDomain);
-    }
+    y += AddAdvancedSmbCard(state, y) + 22;
   } else {
     AddField(state, 0, y, Field::kPath);
     AddCacheCard(state, 672, y);

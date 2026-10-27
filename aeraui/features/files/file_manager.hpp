@@ -12,14 +12,42 @@
 
 namespace aeraui::file_manager {
 
-enum class Operation { kCopy, kMove, kDelete, kMeasure };
+enum class Operation {
+  kCopy,
+  kMove,
+  kDelete,
+  kMeasure,
+  kChecksum,
+  kExtract,
+  kCompress,
+  kArchiveAdd,
+  kArchiveDelete,
+};
+enum class ChecksumType { kSHA256, kMD5 };
 enum class Conflict { kReplace, kKeepBoth, kSkip };
 
 struct Request {
   Operation operation = Operation::kCopy;
+  ChecksumType checksum_type = ChecksumType::kSHA256;
   Conflict conflict = Conflict::kKeepBoth;
   std::vector<std::string> sources;
   std::string destination;
+  // Archive member paths are relative to the archive root. An empty list
+  // extracts the complete archive.
+  std::vector<std::string> archive_members;
+  // Folder inside an archive where newly-added sources are placed. Empty is
+  // the archive root.
+  std::string archive_directory;
+  // Writable formats are currently "zip" and "7z".
+  std::string archive_format = "zip";
+  // Remove a newly-created destination if extraction fails before writing it.
+  bool cleanup_empty_destination = false;
+};
+
+struct ArchiveEntry {
+  std::string path;
+  bool directory = false;
+  uint64_t size = 0;
 };
 
 struct Metadata {
@@ -76,6 +104,7 @@ struct Snapshot {
   size_t skipped = 0;
   std::string status;
   std::string detail;
+  std::string checksum;
 };
 
 struct Progress {
@@ -94,6 +123,7 @@ struct Progress {
   mutable std::mutex text_mutex;
   std::string status;
   std::string detail;
+  std::string checksum;
 
   void Reset();
   Snapshot Get() const;
@@ -107,6 +137,10 @@ std::string Parent(const std::string& path);
 std::string Join(const std::string& directory, const std::string& name);
 bool ValidName(const std::string& name, std::string& error);
 bool Exists(const std::string& path);
+bool IsArchiveFile(const std::string& name);
+bool SafeArchiveEntryPath(const std::string& path);
+bool ListArchive(const std::string& archive, std::vector<ArchiveEntry>& entries,
+                 std::string& error);
 bool IsTextFile(const std::string& path, uint64_t maximum_bytes);
 bool ReadText(const std::string& path, uint64_t maximum_bytes, std::string& text, bool& truncated,
               std::string& error);

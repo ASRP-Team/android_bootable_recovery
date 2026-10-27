@@ -1,8 +1,12 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
 #include <lvgl.h>
+#include <string>
 
 namespace aeraui::text_edit {
+// Shared with native Copy/Cut/Paste. Access only from the UI thread.
+const std::string &ClipboardText();
+void SetClipboardText(const std::string &text);
 void Attach(lv_obj_t *input);
 lv_obj_t *FocusedInput();
 using ControlHandler = void (*)(lv_obj_t *, unsigned, void *);

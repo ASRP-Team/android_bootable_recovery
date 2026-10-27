@@ -24,10 +24,12 @@ bool WriteRawImage(int fd, const PayloadFlashTarget &target, const std::string &
 bool VerifyImageBytes(int fd, uint64_t image_bytes, const std::string &expected_sha256,
                       std::string &error,
                       const std::function<void(uint64_t, uint64_t)> &progress = {});
+bool TargetCapacityMatches(uint64_t capacity, uint64_t image_bytes, bool exact);
 int OpenDirectBlock(const std::string &path, uint64_t image_bytes, std::string &error);
 bool VerifyWrittenFd(int fd, uint64_t image_bytes, const std::string &expected_sha256,
                      std::string &error,
-                     const std::function<void(uint64_t, uint64_t)> &progress = {});
+                     const std::function<void(uint64_t, uint64_t)> &progress = {},
+                     bool exact_capacity = false);
 // Called before remounting a freshly written partition. Flushes and invalidates
 // the block cache before reading back, and requires a real block-device target.
 bool VerifyWrittenBlock(const std::string &path, uint64_t image_bytes,

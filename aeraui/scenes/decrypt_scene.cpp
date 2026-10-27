@@ -35,6 +35,13 @@ struct DecryptState {
   lv_obj_t *status = nullptr;
   lv_obj_t *submit = nullptr;
   lv_obj_t *submit_label = nullptr;
+  lv_obj_t *screen = nullptr;
+  lv_obj_t *title = nullptr;
+  lv_obj_t *submit_icon = nullptr;
+  lv_obj_t *language_button = nullptr;
+  lv_obj_t *language_picker = nullptr;
+  int user_id = 0;
+  std::string user_name;
   lv_obj_t *keyboard = nullptr;
   lv_obj_t *pattern_area = nullptr;
   lv_obj_t *pattern_line = nullptr;
@@ -51,7 +58,10 @@ struct DecryptState {
 };
 
 void DeleteState(lv_event_t *event) {
-  delete static_cast<DecryptState *>(lv_event_get_user_data(event));
+  auto *state = static_cast<DecryptState *>(lv_event_get_user_data(event));
+  // The picker has delete callbacks that still refer to this scene state.
+  if (state->language_picker) lv_obj_delete(state->language_picker);
+  delete state;
 }
 
 void SubmitDecrypt(DecryptState *state) {
@@ -445,6 +455,80 @@ void MakeKeyboard(DecryptState *state, lv_obj_t *panel, bool pin) {
   lv_keyboard_set_textarea(state->keyboard, state->input);
 }
 
+void RefreshDecryptLanguage(DecryptState *state) {
+  const std::string target = state->user_name.empty()
+      ? i18n::Format("Android user %d", state->user_id) : state->user_name;
+  const std::string title = state->secondary
+      ? i18n::Format("Unlock %s", target.c_str())
+      : i18n::Translate("Unlock your storage");
+  lv_label_set_text(state->title, title.c_str());
+  if (state->input)
+    lv_textarea_set_placeholder_text(state->input, i18n::Translate(
+        state->credential_type == 3 ? "Enter PIN" : "Enter password"));
+  const bool rtl = i18n::IsRightToLeft();
+  lv_label_set_text(state->submit_icon, rtl ? LV_SYMBOL_LEFT : LV_SYMBOL_RIGHT);
+  lv_obj_align(state->submit_icon, rtl ? LV_ALIGN_LEFT_MID : LV_ALIGN_RIGHT_MID,
+               rtl ? 44 : -44, 0);
+  i18n::ApplyDirection(state->screen);
+  if (state->pattern_area && state->sequence_length > 0)
+    lv_label_set_text(state->status,
+        i18n::Format("%d dots connected", state->sequence_length).c_str());
+}
+
+void OpenDecryptLanguage(DecryptState *state) {
+  if (state->busy || state->submit_pending || state->language_picker) return;
+  const int screen_width = lv_obj_get_width(state->screen);
+  const int screen_height = lv_obj_get_height(state->screen);
+  auto *overlay = lv_obj_create(state->screen);
+  Clear(overlay);
+  lv_obj_set_user_data(overlay, &widgets::kModalMarker);
+  lv_obj_add_flag(overlay, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_add_flag(overlay, LV_OBJ_FLAG_FLOATING);
+  lv_obj_set_size(overlay, screen_width, screen_height);
+  lv_obj_set_style_bg_color(overlay, kCanvas, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+  state->language_picker = overlay;
+  lv_obj_add_event_cb(overlay, [](lv_event_t *event) {
+    static_cast<DecryptState *>(lv_event_get_user_data(event))->language_picker = nullptr;
+  }, LV_EVENT_DELETE, state);
+
+  auto *title = Label(overlay, "Language", &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(title, 80, 72);
+  lv_obj_set_width(title, screen_width - 640);
+  auto *close = widgets::Button(overlay, "Back", [overlay] { lv_obj_delete_async(overlay); });
+  lv_obj_set_size(close, 360, 100);
+  lv_obj_align(close, LV_ALIGN_TOP_RIGHT, -80, 56);
+  auto *list = widgets::Scroll(overlay, 220, screen_height - 280);
+  lv_obj_update_layout(list);
+  const int width = lv_obj_get_width(list) - 28;
+  const auto &languages = i18n::AvailableLanguages();
+  for (size_t index = 0; index < languages.size(); ++index) {
+    const auto language = languages[index];
+    auto *row = widgets::Button(list, "", {},
+        std::string(i18n::CurrentLanguage()) == language.code);
+    lv_obj_set_pos(row, 0, static_cast<int>(index) * 154);
+    lv_obj_set_size(row, width, 142);
+    auto *native = Label(row, language.native_name, &lv_font_montserrat_32, kText);
+    lv_obj_set_pos(native, 28, 20);
+    lv_obj_set_width(native, width - 100);
+    auto *english = Label(row, language.name, &lv_font_montserrat_24, kMuted);
+    lv_obj_set_pos(english, 28, 80);
+    lv_obj_set_width(english, width - 100);
+    widgets::OnClick(row, [state, overlay, language] {
+      if (state->busy || state->submit_pending) return;
+      if (!RecoverySetLanguage(language.code) || !i18n::SetLanguage(language.code)) {
+        widgets::Sheet(overlay, "Language unavailable",
+            "AERA could not apply the selected language.");
+        return;
+      }
+      RefreshDecryptLanguage(state);
+      // Storage may still be encrypted. Keep the choice in memory without
+      // attempting to create preference files or enter the settings scene.
+      lv_obj_delete_async(overlay);
+    });
+  }
+}
+
 }  // namespace
 
 DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
@@ -458,9 +542,17 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
   state->credential_type = credential_type;
   state->grid_size = std::clamp(pattern_grid_size, 3, 6);
   state->secondary = user_id != 0;
+  state->screen = screen;
+  state->user_id = user_id;
+  state->user_name = user_name;
   lv_obj_add_event_cb(screen, DeleteState, LV_EVENT_DELETE, state);
   MainBackground(screen);
   AttachStatusBar(screen, callback, context, StatusBarAction::kNone, true);
+  state->language_button = widgets::Button(screen, "Language", [state] { OpenDecryptLanguage(state); });
+  lv_obj_set_style_text_align(lv_obj_get_child(state->language_button, 0),
+                             LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_size(state->language_button, 420, 100);
+  lv_obj_align(state->language_button, LV_ALIGN_TOP_RIGHT, -80, 172);
 
   (void)file_based;
   const bool pin = credential_type == 3;
@@ -513,6 +605,7 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
       : i18n::Translate("Unlock your storage");
   lv_obj_t *title =
       Label(screen, title_text.c_str(), &lv_font_montserrat_48, kText);
+  state->title = title;
   lv_obj_set_width(title, 1280);
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 584);
@@ -552,6 +645,7 @@ DecryptScene BuildDecryptScene(lv_obj_t *screen, int credential_type,
   lv_obj_t* submit_icon =
       Label(state->submit, i18n::IsRightToLeft() ? LV_SYMBOL_LEFT : LV_SYMBOL_RIGHT,
             &lv_font_montserrat_32, kCanvas);
+  state->submit_icon = submit_icon;
   lv_obj_align(submit_icon, i18n::IsRightToLeft() ? LV_ALIGN_LEFT_MID : LV_ALIGN_RIGHT_MID,
                i18n::IsRightToLeft() ? 44 : -44, 0);
   Bind(state->submit, Action::kDecryptSubmit, state);
@@ -594,6 +688,8 @@ void SetDecryptBusy(const DecryptScene &scene) {
   auto *state = static_cast<DecryptState *>(scene.state);
   if (state == nullptr) return;
   state->busy = true;
+  if (state->language_button) lv_obj_add_state(state->language_button, LV_STATE_DISABLED);
+  if (state->language_picker) lv_obj_delete_async(state->language_picker);
   i18n::BindLabel(state->status, state->secondary
                                        ? "Unlocking Android user..."
                                        : "Unlocking and preparing /data...");
@@ -616,6 +712,7 @@ void CompleteDecryptAttempt(const DecryptScene &scene, bool success) {
   }
   state->busy = false;
   state->submit_pending = false;
+  if (state->language_button) lv_obj_remove_state(state->language_button, LV_STATE_DISABLED);
   i18n::BindLabel(state->status,
                     state->secondary
                         ? "That credential did not unlock this user. Please try again."

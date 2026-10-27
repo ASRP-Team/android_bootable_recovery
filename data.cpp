@@ -1299,6 +1299,7 @@ void DataManager::SetDefaultValues()
   mPersist.SetValue(AERA_PRESERVE_RECOVERY_VAR, "0");
 #endif
   mPersist.SetValue(AERA_PRESERVE_ABL_VAR, "0");
+  mPersist.SetValue(AERA_PRESERVE_SPLASH_VAR, "0");
 
   // avb2.0 disable
   // by patching boot image

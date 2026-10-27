@@ -209,6 +209,42 @@ void BuildDeveloperScene(lv_obj_t *screen, ActionCallback callback, void *contex
     scroll_positions[selected_group] = lv_obj_get_scroll_y(list);
     callback(Action::kDeveloperSettings, context);
   };
+  if (selected_group == "Storage") {
+    const bool enabled = RecoveryPreference(Preference::kPreserveSplash);
+    const bool supported = RecoverySplashPreservationSupported();
+    auto *row = lv_button_create(list);
+    Panel(row, 28, kMainSheet); Interactive(row, kMainSelected);
+    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(row, 28, 0);
+    lv_obj_set_style_pad_column(row, 24, 0);
+    auto *text = lv_obj_create(row); Clear(text);
+    lv_obj_remove_flag(text, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_width(text, 0); lv_obj_set_flex_grow(text, 1);
+    lv_obj_set_height(text, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(text, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(text, 12, 0);
+    auto *title = Label(text, "Keep splash", &lv_font_montserrat_32, kText);
+    lv_obj_set_width(title, LV_PCT(100)); lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
+    auto *detail = Label(text, supported ?
+        "Keep the current boot splash during ZIP installs. Manual image flashing can override this." :
+        "Unavailable", &lv_font_montserrat_24, kMutedStrong);
+    lv_obj_set_width(detail, LV_PCT(100)); lv_label_set_long_mode(detail, LV_LABEL_LONG_WRAP);
+    auto *toggle = lv_switch_create(row); StyleSwitch(toggle, enabled);
+    if (!supported && !enabled) lv_obj_add_state(row, LV_STATE_DISABLED);
+    else OnClick(row, [=] {
+      const bool previous = RecoveryPreference(Preference::kPreserveSplash);
+      if (!RecoverySetPreference(Preference::kPreserveSplash, !previous)) return;
+      if (!RecoveryAutoSavePreferences()) {
+        RecoverySetPreference(Preference::kPreserveSplash, previous);
+        Sheet(screen, "Developer settings", "Could not save preferences");
+        return;
+      }
+      if (!previous) lv_obj_add_state(toggle, LV_STATE_CHECKED);
+      else lv_obj_remove_state(toggle, LV_STATE_CHECKED);
+    });
+  }
   bool any = false;
   for (const auto &setting : settings) {
     if (selected_group == "Saved" ? setting.saved.empty() : setting.group != selected_group) continue;
@@ -249,7 +285,9 @@ void BuildDeveloperScene(lv_obj_t *screen, ActionCallback callback, void *contex
   });
   lv_obj_set_size(export_settings, LV_PCT(100), 112);
   auto *reset = Button(list, "Reset developer settings", [=] {
-    Sheet(screen, "Reset developer settings", "Restore the initial values from this recovery boot and remove saved overrides?", [=] {
+    Sheet(screen, "Reset developer settings",
+        std::string(i18n::Translate("Restore the initial values from this recovery boot and remove saved overrides?")) +
+        "\n" + i18n::Translate("Keep splash") + ": " + i18n::Translate("Off"), [=] {
       std::string error;
       if (!RecoveryResetDeveloperSettings(&error)) Sheet(screen, "Developer settings", error);
       else { scroll_positions.clear(); refresh(); }

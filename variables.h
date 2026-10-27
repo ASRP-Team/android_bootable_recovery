@@ -360,6 +360,7 @@ static int Aera_Current_ROM_IsMIUI = 0; // is the currently installed ROM a MIUI
 #define TW_AUTO_REFLASHTWRP_VAR "tw_auto_reflashtwrp"
 #define AERA_PRESERVE_RECOVERY_VAR "aera_preserve_recovery"
 #define AERA_PRESERVE_ABL_VAR      "aera_preserve_abl"
+#define AERA_PRESERVE_SPLASH_VAR   "aera_preserve_splash"
 #define AERA_RECOVERY_PRESERVATION_SUPPORTED "aera_recovery_preservation_supported"
 #define AERA_ABL_PRESERVATION_SUPPORTED      "aera_abl_preservation_supported"
 

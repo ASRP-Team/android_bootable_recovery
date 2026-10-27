@@ -133,6 +133,9 @@ bool VerifyImageBytes(int fd, uint64_t image_bytes, const std::string &expected_
   if (progress) progress(image_bytes, image_bytes);
   return true;
 }
+bool TargetCapacityMatches(uint64_t capacity, uint64_t image_bytes, bool exact) {
+  return image_bytes && (exact ? capacity == image_bytes : capacity >= image_bytes);
+}
 int OpenDirectBlock(const std::string &path, uint64_t image_bytes, std::string &error) {
   char resolved[PATH_MAX];
   if (!realpath(path.c_str(), resolved) || strncmp(resolved, "/dev/block/", 11)) {
@@ -141,18 +144,20 @@ int OpenDirectBlock(const std::string &path, uint64_t image_bytes, std::string &
   const int fd = open(resolved, O_RDWR | O_EXCL | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
   if (fd < 0) { error = "Cannot exclusively claim " + path + ": " + strerror(errno); return -1; }
   uint64_t device = 0, bytes = 0;
-  if (!image_bytes || !Geometry(fd, device, bytes) || image_bytes > bytes) {
-    close(fd); error = "Direct target is read-only or too small"; return -1;
+  if (!Geometry(fd, device, bytes) || !TargetCapacityMatches(bytes, image_bytes, true)) {
+    close(fd); error = "Direct logical target does not exactly match the manifest image size"; return -1;
   }
   return fd;
 }
 bool VerifyWrittenFd(int fd, uint64_t image_bytes, const std::string &expected_sha256,
                      std::string &error,
-                     const std::function<void(uint64_t, uint64_t)> &progress) {
+                     const std::function<void(uint64_t, uint64_t)> &progress,
+                     bool exact_capacity) {
   struct stat st{};
   uint64_t capacity = 0;
   if (fstat(fd, &st) || !S_ISBLK(st.st_mode) || ioctl(fd, BLKGETSIZE64, &capacity) ||
-      !image_bytes || image_bytes > capacity || expected_sha256.size() != SHA256_DIGEST_LENGTH) {
+      !TargetCapacityMatches(capacity, image_bytes, exact_capacity) ||
+      expected_sha256.size() != SHA256_DIGEST_LENGTH) {
     error = "Written partition has invalid type or capacity"; return false;
   }
   if (fsync(fd) || ioctl(fd, BLKFLSBUF)) {

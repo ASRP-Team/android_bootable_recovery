@@ -36,6 +36,8 @@ std::string Settings() {
   // runtime-only or where the ABL option is hidden by the device configuration.
   output << "\nKeep AERA installed: " << DataManager::GetIntValue(AERA_PRESERVE_RECOVERY_VAR)
          << "\nKeep current ABL: " << DataManager::GetIntValue(AERA_PRESERVE_ABL_VAR) << '\n';
+  if (DataManager::GetIntValue(AERA_PRESERVE_SPLASH_VAR) != 0)
+    output << "Keep splash: 1\n";
   return output.str();
 }
 bool MakePath(const std::string &path, bool media = false) {

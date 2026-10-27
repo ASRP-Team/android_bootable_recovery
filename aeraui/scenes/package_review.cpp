@@ -421,7 +421,8 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
       Label(row, "Firmware", &lv_font_montserrat_28, kMuted);
     Label(row, Size(partition.bytes).c_str(), &lv_font_montserrat_28, kMuted);
     if (protected_partition) {
-      Label(row, partition.name == "abl" ? "Keep current ABL" : "Keep AERA installed",
+      Label(row, partition.name == "splash" ? "Keep splash" :
+            partition.name == "abl" ? "Keep current ABL" : "Keep AERA installed",
             &lv_font_montserrat_24, kMuted);
     }
     rows->push_back({partition.name, partition.bytes, row, check, mark, protected_partition});
@@ -535,7 +536,8 @@ void ReviewFastFlash(const payload::Info &info, const std::string &path,
     Row(area, "Images", std::to_string(request.partitions.size()));
     for (const auto &partition : info.partitions)
       if (std::find(request.partitions.begin(), request.partitions.end(), partition.name) == request.partitions.end())
-        Row(area, partition.name == "abl" ? "Keep current ABL" : "Keep AERA installed", partition.name);
+        Row(area, partition.name == "splash" ? "Keep splash" :
+            partition.name == "abl" ? "Keep current ABL" : "Keep AERA installed", partition.name);
     Row(area, "Expanded size", Size(info.expanded_bytes));
     Explanation(area, "Otaripper schedules all selected partitions through one shared worker pool, without temporary extraction. Each image is read back and SHA-256 verified. Scroll the progress list to see every partition.");
     Explanation(area, "Use only firmware intended for this device. This bypasses the normal OTA installer and its compatibility checks, snapshot rollback and postinstall. An interruption may leave the current slot unbootable. Do not reboot after a failure; reflash known-good firmware.");

@@ -643,6 +643,9 @@ void SelectAll(lv_obj_t *input) {
   ShowMenu(state);
 }
 
+const std::string &ClipboardText() { return clipboard; }
+void SetClipboardText(const std::string &text) { clipboard = text; }
+
 bool Copy(lv_obj_t *input) {
   uint32_t start, end;
   if (!Range(input, start, end)) return false;

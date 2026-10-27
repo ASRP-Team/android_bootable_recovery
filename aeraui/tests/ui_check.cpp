@@ -57,7 +57,7 @@ bool CancelUpload(const std::string &) { upload_cancelled = true; return true; }
 }
 static std::string backup_root;
 static std::string file_root;
-static bool preferences[12] = {true, false, true, true, false, false, false, true,
+static bool preferences[13] = {true, false, true, true, false, false, false, true,
                                true, false, true, true};
 static int utc_offset = 120;
 static uint32_t accent_color = design::kDefaultAccentRgb;
@@ -84,6 +84,7 @@ bool aeraui::RecoverySetDeveloperSetting(const std::string &id, const std::strin
 }
 bool aeraui::RecoveryResetDeveloperSettings(std::string *) {
   for (auto &setting : developer_settings) { setting.current = setting.baseline; setting.saved.clear(); }
+  preferences[static_cast<int>(Preference::kPreserveSplash)] = false;
   return true;
 }
 void aeraui::RecoveryPollDeveloperSettings() {}
@@ -129,6 +130,8 @@ bool RecoveryPreference(Preference p) { return preferences[static_cast<int>(p)];
 bool RecoverySetPreference(Preference p, bool enabled) { preferences[static_cast<int>(p)] = enabled; return true; }
 bool RecoveryPreservationSupported() { return preservation_supported; }
 bool RecoveryAblPreservationSupported() { return abl_preservation_supported; }
+static bool splash_preservation_supported = true;
+bool RecoverySplashPreservationSupported() { return splash_preservation_supported; }
 bool RecoverySha256Available() { return true; }
 int RecoveryUtcOffset() { return utc_offset; }
 bool RecoverySetUtcOffset(int minutes) { utc_offset = minutes; return true; }
@@ -310,6 +313,20 @@ BrowserCookiePolicy RecoveryBrowserCookiePolicy() {
   return BrowserCookiePolicy::kFirstParty;
 }
 bool RecoverySetBrowserCookiePolicy(BrowserCookiePolicy) { return true; }
+FileSortSettings RecoveryFileSortSettings() {
+  FileSortSettings settings;
+  int mode = 0;
+  std::ifstream input(backup_root + "/file-sort.preferences");
+  if (input >> mode >> settings.ascending && mode >= 0 && mode <= 3)
+    settings.mode = static_cast<FileSortMode>(mode);
+  return settings;
+}
+bool RecoverySetFileSortSettings(const FileSortSettings &settings) {
+  if (!save_succeeds) return false;
+  std::ofstream output(backup_root + "/file-sort.preferences");
+  output << static_cast<int>(settings.mode) << ' ' << settings.ascending;
+  return bool(output);
+}
 bool RecoverySavePreferences() { return save_succeeds; }
 bool RecoveryPcAutoEnable() { return false; }
 bool RecoverySetPcAutoEnable(bool) { return true; }
@@ -998,6 +1015,48 @@ int main(int argc,char **argv) {
     }
     std::filesystem::remove_all(backup_root);
     puts("File search: toolbar, keyboard, recursive results, empty results and Back passed");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--browser-settings")) {
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                landscape ? 1440 : 3168);
+      int channels[2];
+      assert(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, channels) == 0);
+      int frame_fd = memfd_create("browser-settings-test",
+                                 MFD_CLOEXEC | MFD_ALLOW_SEALING);
+      assert(frame_fd >= 0 && ftruncate(frame_fd, web::kSharedBytes) == 0);
+      assert(fcntl(frame_fd, F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_GROW) == 0);
+      auto *page = lv_obj_create(nullptr);
+      BuildWebScene(page, RecordAction, nullptr, frame_fd, channels[0], false);
+      lv_screen_load(page); lv_obj_update_layout(page);
+      auto *settings = Find(page, LV_SYMBOL_SETTINGS); assert(settings);
+      lv_obj_send_event(settings, LV_EVENT_CLICKED, nullptr); Tick();
+      auto *heading = FindLabel(page, "Browser settings"); assert(heading);
+      auto *overlay = lv_obj_get_parent(heading);
+      auto *home = FindLabel(page, "Homepage"); assert(home);
+      auto *content = lv_obj_get_parent(home);
+      save(landscape ? "/tmp/aera-browser-settings-landscape.png" :
+                       "/tmp/aera-browser-settings-portrait.png", 2);
+      assert(lv_obj_get_width(content) >= 1200);
+      assert(lv_obj_get_height(content) > 700);
+      assert(lv_obj_is_visible(home));
+      auto *zoom = FindType(content, &lv_slider_class); assert(zoom);
+      assert(lv_obj_get_style_bg_opa(zoom, LV_PART_MAIN) == LV_OPA_COVER);
+      assert(lv_obj_get_style_bg_opa(zoom, LV_PART_KNOB) == LV_OPA_COVER);
+      lv_slider_set_value(zoom, 150, LV_ANIM_OFF);
+      lv_obj_send_event(zoom, LV_EVENT_VALUE_CHANGED, nullptr); Tick(2);
+      assert(FindLabel(content, "150%"));
+      auto *save_button = Find(page, "Save browser settings"); assert(save_button);
+      assert(lv_obj_get_y(save_button) > lv_obj_get_y(content));
+      auto *back = Find(overlay, LV_SYMBOL_LEFT); assert(back);
+      lv_obj_send_event(back, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(!Find(page, "Browser settings"));
+      close(channels[1]);
+      lv_screen_load(screen); lv_obj_delete(page); Tick(2);
+    }
+    std::filesystem::remove_all(backup_root);
+    puts("Browser settings: visible content and close control passed in both orientations");
     return 0;
   }
   if (!strcmp(argv[1], "--sim-pin")) {
@@ -2216,8 +2275,8 @@ int main(int argc,char **argv) {
         {"vendor", 1000, 250, PayloadPhase::Verifying},
         {"product", 1000, 700, PayloadPhase::Writing},
         {"system_ext", 1000, 400, PayloadPhase::Writing},
-        {"my_product", 1000, 300, PayloadPhase::Writing},
-        {"my_stock", 1000, 200, PayloadPhase::Writing},
+        {"oem_product", 1000, 300, PayloadPhase::Writing},
+        {"oem_stock", 1000, 200, PayloadPhase::Writing},
         {"vendor_dlkm", 1000, 600, PayloadPhase::Verifying},
         {"odm", 1000, 900, PayloadPhase::Writing},
         {"boot", 100, 0, PayloadPhase::Queued}}};
@@ -3112,6 +3171,58 @@ int main(int argc,char **argv) {
     puts("Menu PC settings fit six languages, four sizes and both orientations");
     return 0;
   }
+  if (!strcmp(argv[1], "--splash-preservation")) {
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440, landscape ? 1440 : 3168);
+      auto *page = lv_obj_create(nullptr);
+      BuildDeveloperScene(page, RecordAction, nullptr); lv_screen_load(page); Tick();
+      lv_obj_send_event(Find(page, "Storage"), LV_EVENT_CLICKED, nullptr);
+      lv_screen_load(screen); lv_obj_delete(page);
+      page = lv_obj_create(nullptr);
+      BuildDeveloperScene(page, RecordAction, nullptr); lv_screen_load(page); Tick();
+      auto *row = lv_obj_get_parent(Find(page, "Keep splash")); assert(row);
+      auto *toggle = FindType(row, &lv_switch_class); assert(toggle);
+      assert(!lv_obj_has_state(toggle, LV_STATE_CHECKED));
+      const int saves = autosave_count;
+      lv_obj_send_event(row, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(RecoveryPreference(Preference::kPreserveSplash));
+      assert(lv_obj_has_state(toggle, LV_STATE_CHECKED) && autosave_count == saves + 1);
+      save_succeeds = false;
+      lv_obj_send_event(row, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(RecoveryPreference(Preference::kPreserveSplash)); // Failed saves roll back.
+      save_succeeds = true;
+      lv_screen_load(screen); lv_obj_delete(page);
+      page = lv_obj_create(nullptr);
+      BuildDeveloperScene(page, RecordAction, nullptr); lv_screen_load(page); Tick();
+      row = lv_obj_get_parent(Find(page, "Keep splash"));
+      assert(lv_obj_has_state(FindType(row, &lv_switch_class), LV_STATE_CHECKED));
+      lv_obj_send_event(row, LV_EVENT_CLICKED, nullptr); Tick();
+      assert(!RecoveryPreference(Preference::kPreserveSplash));
+      AssertContained(row, lv_obj_get_parent(row));
+      lv_screen_load(screen); lv_obj_delete(page); Tick();
+    }
+    payload::Info info;
+    info.valid = info.is_payload = true;
+    info.partitions = {{"boot", 4096, 1, true, {}, std::string(32, 'b')},
+                       {"splash", 4096, 1, true, {}, std::string(32, 's')}};
+    const std::vector<PayloadFlashTarget> targets = {
+      {"boot", "/boot", 8192, false, 0, {}}, {"splash", "/splash", 8192, false, 0, {}}};
+    for (bool enabled : {false, true}) for (bool supported : {false, true}) {
+      preferences[static_cast<int>(Preference::kPreserveSplash)] = enabled;
+      splash_preservation_supported = supported;
+      auto protect = payload::ProtectedPartitions();
+      assert(bool(protect.count("splash")) == (enabled && supported));
+      std::vector<std::string> names; std::string error;
+      assert(payload::PlanFullFlash(info, targets, names, error, protect));
+      assert(names.size() == ((enabled && supported) ? 1U : 2U));
+    }
+    splash_preservation_supported = true;
+    preferences[static_cast<int>(Preference::kPreserveSplash)] = false;
+    lv_display_delete(display); lv_deinit();
+    std::filesystem::remove_all(backup_root);
+    puts("Splash toggle, autosave rollback, layouts and payload protection passed.");
+    return 0;
+  }
   if (!strcmp(argv[1], "--payload-protection")) {
     const bool old_abl = preferences[static_cast<int>(Preference::kPreserveAbl)];
     const bool old_recovery = preferences[static_cast<int>(Preference::kPreserveRecovery)];
@@ -3281,6 +3392,59 @@ int main(int argc,char **argv) {
     lv_display_delete(display); lv_deinit();
     std::filesystem::remove_all(backup_root);
     puts("Settings destinations and language viewport match all five docks and four sizes");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--file-sort")) {
+    for (bool landscape : {false, true}) {
+      lv_display_set_resolution(display, landscape ? 3168 : 1440,
+                                landscape ? 1440 : 3168);
+      assert(RecoverySetFileSortSettings({FileSortMode::kName, true}));
+      auto *page = lv_obj_create(nullptr);
+      auto open = [&] {
+        BuildFilesScene(page, RecordAction, nullptr);
+        lv_screen_load(page); Tick(2);
+        lv_obj_send_event(Find(page, LV_SYMBOL_LIST), LV_EVENT_CLICKED, nullptr);
+        Tick(2);
+        assert(!Find(page, "Ascending") && !Find(page, "Descending"));
+      };
+      auto check = [&](const char *name, FileSortMode mode, bool ascending) {
+        auto *card = Find(page, name); assert(card);
+        assert(lv_obj_has_state(card, LV_STATE_CHECKED));
+        auto *arrow = FindLabel(card, ascending ? LV_SYMBOL_UP : LV_SYMBOL_DOWN);
+        assert(arrow && lv_obj_is_visible(arrow));
+        assert(lv_obj_get_x(arrow) > lv_obj_get_width(card) / 2);
+        const auto saved = RecoveryFileSortSettings();
+        assert(saved.mode == mode && saved.ascending == ascending);
+      };
+      open(); check("Name", FileSortMode::kName, true);
+      lv_obj_send_event(Find(page, "Name"), LV_EVENT_CLICKED, nullptr); Tick(2);
+      check("Name", FileSortMode::kName, false);
+      for (const auto &[name, mode] : std::vector<std::pair<const char *, FileSortMode>>{
+          {"Size", FileSortMode::kSize}, {"Date", FileSortMode::kDate},
+          {"Type", FileSortMode::kType}, {"Name", FileSortMode::kName}}) {
+        lv_obj_send_event(Find(page, name), LV_EVENT_CLICKED, nullptr); Tick(2);
+        check(name, mode, false);
+        lv_obj_send_event(Find(page, name), LV_EVENT_CLICKED, nullptr); Tick(2);
+        check(name, mode, true);
+        lv_obj_send_event(Find(page, name), LV_EVENT_CLICKED, nullptr); Tick(2);
+        check(name, mode, false);
+      }
+      auto *alpha = Find(page, "alpha.txt");
+      auto *long_name = Find(page, "long-file-name-for-layout-validation.txt");
+      assert(alpha && long_name && lv_obj_get_y(alpha) > lv_obj_get_y(long_name));
+      save(landscape ? "/tmp/aera-file-sort-landscape.png" : "/tmp/aera-file-sort-portrait.png");
+      lv_screen_load(screen); lv_obj_delete(page); Tick(2);
+      page = lv_obj_create(nullptr); open();
+      check("Name", FileSortMode::kName, false);
+      save_succeeds = false;
+      lv_obj_send_event(Find(page, "Size"), LV_EVENT_CLICKED, nullptr); Tick(2);
+      check("Name", FileSortMode::kName, false);
+      assert(Find(page, "Could not save preferences"));
+      save_succeeds = true;
+      lv_screen_load(screen); lv_obj_delete(page); Tick(2);
+    }
+    std::filesystem::remove_all(backup_root);
+    puts("File sorting: four cards, repeat-tap direction, file order, persistence and save failure passed");
     return 0;
   }
   if (!strcmp(argv[1], "--file-dates")) {
@@ -3627,10 +3791,10 @@ int main(int argc,char **argv) {
         lv_obj_send_event(Find(files, LV_SYMBOL_LIST), LV_EVENT_CLICKED, nullptr);
         Tick();
         assert(Find(files, "Date"));
-        assert(Find(files, "Ascending"));
-        assert(Find(files, "Descending"));
+        assert(!Find(files, "Ascending"));
+        assert(!Find(files, "Descending"));
         lv_obj_send_event(Find(files, "Date"), LV_EVENT_CLICKED, nullptr);
-        lv_obj_send_event(Find(files, "Descending"), LV_EVENT_CLICKED, nullptr);
+        lv_obj_send_event(Find(files, "Date"), LV_EVENT_CLICKED, nullptr);
         Tick();
         auto* sort_overlay = lv_obj_get_child(
             files, static_cast<int32_t>(lv_obj_get_child_count(files)) - 1);

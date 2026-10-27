@@ -22,10 +22,11 @@ enum Features : uint32_t {
   kFeatureReadablePresentation = 1U << 6,
   kFeatureDesktop = 1U << 7,
   kFeatureDesktopResolution = 1U << 8,
+  kFeatureClipboard = 1U << 9,
 };
 constexpr uint32_t kOptionalFeatures = kFeatureBackground | kFeatureActivities |
     kFeatureRichPresentation | kFeaturePackageReview | kFeatureReadablePresentation |
-    kFeatureDesktop | kFeatureDesktopResolution;
+    kFeatureDesktop | kFeatureDesktopResolution | kFeatureClipboard;
 constexpr uint32_t kFeatureRequestMagic = 0xA2E20000U;
 
 enum class Kind : uint32_t {
@@ -50,6 +51,9 @@ enum class Kind : uint32_t {
   kSetActivityFile,
   kReviewPackage,
   kOpenDesktop = 21,
+  kGetClipboard = 22,
+  kSetClipboard = 23,
+  kClipboardChunk = 24,
   kHelloAck = 64,
   kAction,
   kLifecycle,
@@ -59,6 +63,16 @@ enum class Kind : uint32_t {
   kActivityResult,
   kActivityFileResult,
   kDesktopReady = 72,
+  kClipboardResult = 73,
+};
+
+constexpr uint32_t kMaxClipboardBytes = 1024U * 1024U;
+constexpr uint32_t kClipboardContinue = 1U;
+enum ClipboardResultFlags : uint32_t {
+  kClipboardReady = 1U << 0,
+  kClipboardMore = 1U << 1,
+  kClipboardComplete = 1U << 2,
+  kClipboardError = 1U << 3,
 };
 
 constexpr uint32_t kProgressUnknown = UINT32_MAX;
@@ -119,10 +133,10 @@ inline bool StringsValid(const Message &message) {
          memchr(message.text, '\0', sizeof(message.text)) != nullptr;
 }
 inline bool WorkerKind(Kind kind) {
-  return kind >= Kind::kHello && kind <= Kind::kOpenDesktop;
+  return kind >= Kind::kHello && kind <= Kind::kClipboardChunk;
 }
 inline bool HostKind(Kind kind) {
-  return kind >= Kind::kHelloAck && kind <= Kind::kDesktopReady;
+  return kind >= Kind::kHelloAck && kind <= Kind::kClipboardResult;
 }
 inline bool Valid(const Message &message, bool from_worker) {
   return message.magic == kMagic && message.version == kProtocolVersion &&

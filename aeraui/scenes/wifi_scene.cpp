@@ -370,6 +370,11 @@ void ShowWifiSettings(WifiUi *state) {
                       [page] { CloseOverlay(page); });
   lv_obj_set_size(back, 330, 104);
   lv_obj_align(back, LV_ALIGN_TOP_RIGHT, -64, landscape ? 184 : 232);
+  Panel(back, 32, kMainSheet);
+  Interactive(back, kMainSelected);
+  lv_obj_set_style_border_width(back, 1, 0);
+  lv_obj_set_style_border_color(back, kMainLine, 0);
+  lv_obj_set_style_border_opa(back, LV_OPA_30, 0);
   lv_obj_set_style_radius(back, 32, 0);
 
   const int top = landscape ? 350 : 440;
@@ -1079,6 +1084,11 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
   lv_obj_set_size(settings, 360, 104);
   lv_obj_align(settings, LV_ALIGN_TOP_RIGHT, -64,
                MobileDataEnabled() ? (landscape ? 190 : 244) : (landscape ? 184 : 232));
+  Panel(settings, 32, kMainSheet);
+  Interactive(settings, kMainSelected);
+  lv_obj_set_style_border_width(settings, 1, 0);
+  lv_obj_set_style_border_color(settings, kMainLine, 0);
+  lv_obj_set_style_border_opa(settings, LV_OPA_30, 0);
   lv_obj_set_style_radius(settings, 32, 0);
   auto *panel = lv_obj_create(screen);
   Panel(panel, 36, kMainSheet);
@@ -1112,7 +1122,7 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
   lv_obj_set_width(state->scene.detail, 690);
   lv_label_set_long_mode(state->scene.detail, LV_LABEL_LONG_DOT);
   state->scene.toggle = lv_button_create(panel);
-  Panel(state->scene.toggle, 38, kMainPanel);
+  Panel(state->scene.toggle, 38, kMainSheet);
   Interactive(state->scene.toggle, kMainSelected);
   lv_obj_set_pos(state->scene.toggle, 930, 50);
   lv_obj_set_size(state->scene.toggle, 294, 96);
@@ -1138,6 +1148,11 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
   });
   lv_obj_set_pos(state->scene.refresh, 40, 210);
   lv_obj_set_size(state->scene.refresh, 587, 104);
+  Panel(state->scene.refresh, 30, kMainSheet);
+  Interactive(state->scene.refresh, kMainSelected);
+  lv_obj_set_style_border_width(state->scene.refresh, 1, 0);
+  lv_obj_set_style_border_color(state->scene.refresh, kMainLine, 0);
+  lv_obj_set_style_border_opa(state->scene.refresh, LV_OPA_30, 0);
   lv_obj_set_style_radius(state->scene.refresh, 30, 0);
   state->scene.test = Button(panel, LV_SYMBOL_GPS "  Test connection", [state] {
     WifiRequest request;
@@ -1146,6 +1161,11 @@ WifiScene BuildWifiScene(lv_obj_t *screen, ActionCallback callback, void *contex
   });
   lv_obj_set_pos(state->scene.test, 651, 210);
   lv_obj_set_size(state->scene.test, 587, 104);
+  Panel(state->scene.test, 30, kMainSheet);
+  Interactive(state->scene.test, kMainSelected);
+  lv_obj_set_style_border_width(state->scene.test, 1, 0);
+  lv_obj_set_style_border_color(state->scene.test, kMainLine, 0);
+  lv_obj_set_style_border_opa(state->scene.test, LV_OPA_30, 0);
   lv_obj_set_style_radius(state->scene.test, 30, 0);
 
   auto *caption = Label(screen, "AVAILABLE NETWORKS", &lv_font_montserrat_18, kMuted);

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "plugin_manager.hpp"
+#include "download.hpp"
 #include "console_commands.hpp"
 #include "../../../aera_shared_storage.hpp"
 #include "store_metadata.hpp"
@@ -419,90 +420,8 @@ bool Download(const std::string &url, const std::string &path, uint64_t limit,
               Progress *progress = nullptr, unsigned progress_start = 0,
               unsigned progress_end = 0, uint64_t expected_size = 0) {
   if (!OfficialUrl(url) || limit == 0 || limit > kMaxPayload) return false;
-  for (unsigned attempt = 0; attempt < 3; ++attempt) {
-    unlink(path.c_str());
-
-    // Recovery installs a process-wide SIGCHLD handler which may reap wget
-    // before this worker reaches waitpid(). Keep a pipe descriptor inherited
-    // across exec instead: EOF is delivered only after wget really exits.
-    int completion[2];
-    if (pipe(completion) != 0) return false;
-    const pid_t child = fork();
-    if (child < 0) {
-      close(completion[0]);
-      close(completion[1]);
-      return false;
-    }
-    if (child == 0) {
-      close(completion[0]);
-      // recovery's stderr is a regular log file which is already much larger
-      // than the limits used for manifests and signatures. Redirect before
-      // RLIMIT_FSIZE so wget diagnostics cannot trip the payload size guard.
-      const int null_fd = open("/dev/null", O_RDWR);
-      if (null_fd < 0 || dup2(null_fd, STDIN_FILENO) < 0 ||
-          dup2(null_fd, STDOUT_FILENO) < 0 ||
-          dup2(null_fd, STDERR_FILENO) < 0) {
-        _exit(126);
-      }
-      if (null_fd > STDERR_FILENO) close(null_fd);
-      rlimit size{limit, limit};
-      if (setrlimit(RLIMIT_FSIZE, &size) != 0) _exit(126);
-      umask(077);
-      const char *busybox = access("/sbin/busybox", X_OK) == 0
-                                ? "/sbin/busybox" : "/system/bin/busybox";
-      const char *arguments[] = {busybox, "wget", "-q", "-T", "10", "-t", "1",
-                                 "-O", path.c_str(), url.c_str(), nullptr};
-      execv(busybox, const_cast<char *const *>(arguments));
-      _exit(127);
-    }
-
-    close(completion[1]);
-    if (progress && expected_size) {
-      progress->downloaded_bytes.store(0);
-      progress->total_bytes.store(expected_size);
-      progress->value.store(progress_start);
-    }
-    pollfd completion_event{completion[0], POLLIN | POLLHUP, 0};
-    for (;;) {
-      const int result = poll(&completion_event, 1, 100);
-      if (result < 0 && errno == EINTR) continue;
-      if (result < 0 || (completion_event.revents & (POLLHUP | POLLERR | POLLNVAL)))
-        break;
-      if (progress && expected_size) {
-        struct stat partial{};
-        if (lstat(path.c_str(), &partial) == 0 && S_ISREG(partial.st_mode) &&
-            partial.st_size >= 0) {
-          const uint64_t bytes = std::min<uint64_t>(partial.st_size, expected_size);
-          progress->downloaded_bytes.store(bytes);
-          const unsigned span = progress_end > progress_start
-                                    ? progress_end - progress_start : 0;
-          progress->value.store(progress_start +
-              static_cast<unsigned>(bytes * span / expected_size));
-        }
-      }
-    }
-    close(completion[0]);
-
-    int status = 0;
-    pid_t waited;
-    do {
-      waited = waitpid(child, &status, 0);
-    } while (waited < 0 && errno == EINTR);
-    const bool exited_ok =
-        (waited == child && WIFEXITED(status) && WEXITSTATUS(status) == 0) ||
-        (waited < 0 && errno == ECHILD);
-    struct stat info{};
-    if (exited_ok && lstat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode) &&
-        info.st_size > 0 && static_cast<uint64_t>(info.st_size) <= limit) {
-      if (progress && expected_size) {
-        progress->downloaded_bytes.store(static_cast<uint64_t>(info.st_size));
-        progress->value.store(progress_end);
-      }
-      return true;
-    }
-  }
-  unlink(path.c_str());
-  return false;
+  return transport::Download(url, path, limit, progress, progress_start,
+                             progress_end, expected_size);
 }
 
 bool HashFile(const std::string &path, uint64_t expected_size,
@@ -814,12 +733,12 @@ bool Refresh(Progress &progress) {
   const std::string manifest = std::string(kCacheRoot) + "/catalog.json.new";
   const std::string signature = manifest + ".sig";
   progress.status = "Downloading signed catalog"; progress.value.store(10);
-  if (!Download(kCatalogUrl, manifest, kMaxCatalog)) {
+  if (!Download(kCatalogUrl, manifest, kMaxCatalog, &progress)) {
     unlink(manifest.c_str()); unlink(signature.c_str());
     progress.error = "Could not download the AERA plugin catalog."; return false;
   }
   progress.value.store(45);
-  if (!Download(kCatalogSignatureUrl, signature, kMaxSignature)) {
+  if (!Download(kCatalogSignatureUrl, signature, kMaxSignature, &progress)) {
     unlink(manifest.c_str()); unlink(signature.c_str());
     progress.error = "Could not download the AERA plugin catalog."; return false;
   }
@@ -913,11 +832,11 @@ bool Install(const std::string &id, Location location, Progress &progress) {
   const std::string manifest_path = staging + "/plugin.json";
   const std::string signature_path = staging + "/plugin.json.sig";
   progress.status = "Downloading signed manifest"; progress.value.store(5);
-  if (!Download(source.manifest_url, manifest_path, kMaxManifest)) {
+  if (!Download(source.manifest_url, manifest_path, kMaxManifest, &progress)) {
     RemoveTree(staging); progress.error = "Could not download the plugin manifest."; return false;
   }
   progress.value.store(10);
-  if (!Download(source.signature_url, signature_path, kMaxSignature)) {
+  if (!Download(source.signature_url, signature_path, kMaxSignature, &progress)) {
     RemoveTree(staging); progress.error = "Could not download the plugin manifest."; return false;
   }
   progress.value.store(15);

@@ -61,6 +61,7 @@
 #include "twinstall/install.h"
 #include "twinstall/verifier.h"
 #include "variables.h"
+#include "splash_preservation.hpp"
 #include "data.hpp"
 #include "partitions.hpp"
 #include "twrpDigestDriver.hpp"
@@ -264,10 +265,13 @@ public:
 		const bool preserve_abl =
 				DataManager::GetIntValue(AERA_ABL_PRESERVATION_SUPPORTED) != 0 &&
 				DataManager::GetIntValue(AERA_PRESERVE_ABL_VAR) != 0;
-		if (!preserve_recovery && !preserve_abl) return true;
+		const bool preserve_splash = DataManager::GetIntValue(AERA_PRESERVE_SPLASH_VAR) != 0;
+		if (!preserve_recovery && !preserve_abl && !preserve_splash) return true;
+		const auto splash = preserve_splash ? aera::preservation::FindSplash() :
+				aera::preservation::SplashLayout{};
 
 		const std::string slot = CurrentSlotSuffix();
-		if (slot.empty()) {
+		if (slot.empty() && (preserve_recovery || preserve_abl || !splash.second.empty())) {
 			PreservationError("the active slot could not be determined");
 			return false;
 		}
@@ -278,6 +282,22 @@ public:
 		if (preserve_abl && !Add("current ABL", "abl", slot)) {
 			Cleanup();
 			return false;
+		}
+
+		if (preserve_splash) {
+			if (!splash.bytes) {
+				PreservationError("the splash partitions are unavailable or incompatible");
+				Cleanup();
+				return false;
+			}
+			PreservedPartition target;
+			target.label = "current splash";
+			target.partition = "splash";
+			target.slot_a = splash.first;
+			target.slot_b = splash.second;
+			target.source = slot == "_b" && !splash.second.empty() ? splash.second : splash.first;
+			target.bytes = splash.bytes;
+			targets_.push_back(std::move(target));
 		}
 
 		uint64_t required = kPreservationHeadroom;
@@ -315,7 +335,7 @@ public:
 			}
 			if (target.source == target.slot_a) {
 				target.before_a = target.digest;
-				if (!Sha256Exact(target.slot_b, target.bytes, &target.before_b)) {
+				if (!target.slot_b.empty() && !Sha256Exact(target.slot_b, target.bytes, &target.before_b)) {
 					PreservationError("the " + target.label + " state on slot B could not be recorded");
 					Cleanup();
 					return false;
@@ -338,6 +358,18 @@ public:
 		PartitionManager.Unlock_Block_Partitions();
 		bool success = true;
 		for (const auto& target : targets_) {
+			if (target.slot_b.empty()) {
+				std::string after;
+				if (Sha256Exact(target.slot_a, target.bytes, &after) && after == target.digest)
+					continue;
+				PreservationStatus("Restoring protected " + target.label);
+				if (!CopyExact(target.backup, target.slot_a, target.bytes, false) ||
+						!Sha256Exact(target.slot_a, target.bytes, &after) || after != target.digest) {
+					PreservationError("the " + target.label + " restore could not be verified");
+					success = false;
+				}
+				continue;
+			}
 			std::string after_a;
 			std::string after_b;
 			const bool read_a = Sha256Exact(target.slot_a, target.bytes, &after_a);
@@ -368,7 +400,9 @@ public:
 			}
 		}
 		if (success)
-			PreservationStatus("Protected partitions verified on both slots");
+			PreservationStatus(std::any_of(targets_.begin(), targets_.end(),
+					[](const auto& target) { return target.slot_b.empty(); }) ?
+					"Protected partitions verified" : "Protected partitions verified on both slots");
 		Cleanup();
 		return success;
 	}

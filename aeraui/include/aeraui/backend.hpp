@@ -195,6 +195,13 @@ PayloadFlashProgress RecoveryPayloadFlashProgress();
 std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::string> &names);
 std::vector<Volume> RecoveryRestoreVolumes(const std::string &folder);
 std::string RecoveryStorage();
+enum class FileSortMode { kName, kSize, kDate, kType };
+struct FileSortSettings {
+  FileSortMode mode = FileSortMode::kName;
+  bool ascending = true;
+};
+FileSortSettings RecoveryFileSortSettings();
+bool RecoverySetFileSortSettings(const FileSortSettings &settings);
 std::string RecoveryInternalStorage();
 std::string RecoveryBackupRoot();
 void RecoveryEnsurePcStorage();
@@ -240,6 +247,8 @@ struct SideloadStatus {
   uint64_t total_bytes = 0;
 };
 SideloadStatus RecoverySideloadStatus();
+bool RecoveryPrepareSideload();
+void RecoveryFinishSideload();
 bool RecoveryCancelSideload();
 int RecoveryProgress();
 struct NasTransferProgress {
@@ -304,11 +313,13 @@ enum class Preference {
   kPreserveAbl,
   kBackupChecksums,
   kVerifyBackupChecksums,
+  kPreserveSplash,
 };
 bool RecoveryPreference(Preference preference);
 bool RecoverySetPreference(Preference preference, bool enabled);
 bool RecoveryPreservationSupported();
 bool RecoveryAblPreservationSupported();
+bool RecoverySplashPreservationSupported();
 bool RecoverySha256Available();
 int RecoveryUtcOffset();  // Minutes east of UTC.
 bool RecoverySetUtcOffset(int minutes);

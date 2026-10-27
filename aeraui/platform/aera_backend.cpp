@@ -5,6 +5,7 @@
 #include <aeraui/screen_timeout.hpp>
 #include "../../aera_remote/backup_cancel.hpp"
 #include "../../aera_flash_log.hpp"
+#include "../../twrpinstall/splash_preservation.hpp"
 #include "../../aera_mobile/client.hpp"
 #include "../../aera_mobile/android_apn.hpp"
 #include <json/json.h>
@@ -135,6 +136,13 @@ int aeraui::RecoveryDecrypt(const std::string &credential, int user_id) {
 namespace aeraui {
 namespace {
 void LoadAeraPreferencesIfAvailable();
+// An explicit choice made before /data is unlocked wins over later disk loads.
+std::string gSessionLanguage;
+std::mutex gSessionLanguageMutex;
+std::string SessionLanguageOr(const std::string &stored) {
+  std::lock_guard<std::mutex> lock(gSessionLanguageMutex);
+  return gSessionLanguage.empty() ? stored : gSessionLanguage;
+}
 bool WriteFileAtomically(const std::string &path, const std::string &contents);
 kernel::Settings gDeveloperSettings;
 bool SaveAeraPreferences(bool require_early = false);
@@ -1138,6 +1146,20 @@ SideloadStatus RecoverySideloadStatus() {
   return status;
 }
 
+bool RecoveryPrepareSideload() {
+  if (gSideloadActive.load(std::memory_order_acquire) ||
+      !PrepareAdbSideload()) return false;
+  gSideloadReceivedBytes.store(0, std::memory_order_release);
+  gSideloadTotalBytes.store(0, std::memory_order_release);
+  gSideloadCancelRequested.store(false, std::memory_order_release);
+  gSideloadActive.store(true, std::memory_order_release);
+  return true;
+}
+
+void RecoveryFinishSideload() {
+  gSideloadActive.store(false, std::memory_order_release);
+}
+
 bool RecoveryCancelSideload() {
   if (!gSideloadActive.load(std::memory_order_acquire)) return false;
   gSideloadCancelRequested.store(true, std::memory_order_release);
@@ -1145,10 +1167,8 @@ bool RecoveryCancelSideload() {
 }
 
 int RecoveryRunSideload() {
-  gSideloadReceivedBytes.store(0, std::memory_order_release);
-  gSideloadTotalBytes.store(0, std::memory_order_release);
-  gSideloadCancelRequested.store(false, std::memory_order_release);
-  gSideloadActive.store(true, std::memory_order_release);
+  if (!gSideloadActive.load(std::memory_order_acquire) &&
+      !RecoveryPrepareSideload()) return 1;
 
   const bool mtp_was_enabled = TWFunc::Toggle_MTP(false);
   TWFunc::SetPerformanceMode(true);
@@ -1162,7 +1182,7 @@ int RecoveryRunSideload() {
   TWFunc::Toggle_MTP(mtp_was_enabled);
   PartitionManager.Update_System_Details();
   TWFunc::SetPerformanceMode(false);
-  gSideloadActive.store(false, std::memory_order_release);
+  RecoveryFinishSideload();
   return result == 0 ? 0 : 1;
 }
 
@@ -1177,7 +1197,7 @@ payload::FlashProgressStore gPayloadProgress;
 PayloadFlashProgress RecoveryPayloadFlashProgress() { return gPayloadProgress.Read(); }
 static int RecoveryRunJobImpl(const JobRequest &request);
 int RecoveryRunJob(const JobRequest &request) {
-  const bool needs_mobile_stop = request.job == Job::kInstall || request.job == Job::kSideload ||
+  const bool needs_mobile_stop = request.job == Job::kInstall ||
       request.job == Job::kFlashImage || request.job == Job::kFlashPayload ||
       request.job == Job::kRestore || request.job == Job::kWipe || request.job == Job::kFormatData;
   std::unique_ptr<aera::mobile::StorageLease> mobile_lease;
@@ -1417,7 +1437,8 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
           const auto start = std::chrono::steady_clock::now();
           gPayloadProgress.Set(i, PayloadPhase::Verifying);
           const bool verified = payload::VerifyWrittenFd(held[i].get(), image_sizes[i], image_hashes[i], errors[i],
-              [&](uint64_t done, uint64_t) { gPayloadProgress.Set(i, PayloadPhase::Verifying, done); });
+              [&](uint64_t done, uint64_t) { gPayloadProgress.Set(i, PayloadPhase::Verifying, done); },
+              !targets[i].raw);
           if (verified) {
             ++verified_count;
             gPayloadProgress.Set(i, PayloadPhase::Verified, image_sizes[i]);
@@ -2114,6 +2135,7 @@ static const char *PreferenceVariable(Preference preference) {
     case Preference::kRecents: return "aera_recents_enabled";
     case Preference::kPreserveRecovery: return AERA_PRESERVE_RECOVERY_VAR;
     case Preference::kPreserveAbl: return AERA_PRESERVE_ABL_VAR;
+    case Preference::kPreserveSplash: return AERA_PRESERVE_SPLASH_VAR;
     case Preference::kBackupChecksums: return TW_SKIP_DIGEST_GENERATE_VAR;
     case Preference::kVerifyBackupChecksums: return "aera_verify_backup_checksums";
   }
@@ -2134,11 +2156,15 @@ bool RecoveryPreservationSupported() {
 bool RecoveryAblPreservationSupported() {
   return DataManager::GetIntValue(AERA_ABL_PRESERVATION_SUPPORTED) != 0;
 }
+bool RecoverySplashPreservationSupported() {
+  return aera::preservation::FindSplash().bytes != 0;
+}
 bool RecoverySha256Available() { return DataManager::GetIntValue(TW_NO_SHA2) == 0; }
 bool RecoverySetPreference(Preference preference, bool enabled) {
   const char *variable = PreferenceVariable(preference);
   if (!variable || (preference == Preference::kSha256 && !RecoverySha256Available()) ||
-      (preference == Preference::kPreserveAbl && !RecoveryAblPreservationSupported())) return false;
+      (preference == Preference::kPreserveAbl && !RecoveryAblPreservationSupported()) ||
+      (preference == Preference::kPreserveSplash && enabled && !RecoverySplashPreservationSupported())) return false;
   if (DataManager::SetValue(variable,
       preference == Preference::kBackupChecksums ? (enabled ? 0 : 1) : (enabled ? 1 : 0)) != 0)
     return false;
@@ -2357,7 +2383,7 @@ bool RecoverySetDockHideInApps(bool enabled) {
 std::string RecoveryLanguage() {
   LoadAeraPreferencesIfAvailable();
   const std::string language = DataManager::GetStrValue("tw_language");
-  return language.empty() ? AERA_DEFAULT_LANGUAGE : language;
+  return SessionLanguageOr(language.empty() ? std::string(AERA_DEFAULT_LANGUAGE) : language);
 }
 bool RecoverySetLanguage(const std::string &language) {
   if (language.empty() || language.size() > 16) return false;
@@ -2365,7 +2391,10 @@ bool RecoverySetLanguage(const std::string &language) {
     if (!(std::isalnum(character) || character == '_' || character == '-'))
       return false;
   }
-  return DataManager::SetValue("tw_language", language, 1) == 0;
+  if (DataManager::SetValue("tw_language", language, 1) != 0) return false;
+  std::lock_guard<std::mutex> lock(gSessionLanguageMutex);
+  gSessionLanguage = language;
+  return true;
 }
 std::string RecoveryBrowserHomepage() {
   LoadAeraPreferencesIfAvailable();
@@ -2398,6 +2427,28 @@ bool RecoverySetBrowserCookiePolicy(BrowserCookiePolicy policy) {
   const int value = static_cast<int>(policy);
   if (value < 0 || value > 2) return false;
   return DataManager::SetValue("aera_browser_cookies", value, 1) == 0;
+}
+FileSortSettings RecoveryFileSortSettings() {
+  LoadAeraPreferencesIfAvailable();
+  FileSortSettings settings;
+  const int mode = DataManager::GetIntValue("aera_file_sort_mode");
+  if (mode >= 0 && mode <= 3) settings.mode = static_cast<FileSortMode>(mode);
+  settings.ascending = DataManager::GetStrValue("aera_file_sort_ascending") != "0";
+  return settings;
+}
+bool RecoverySetFileSortSettings(const FileSortSettings &settings) {
+  const int mode = static_cast<int>(settings.mode);
+  if (mode < 0 || mode > 3) return false;
+  const auto previous = RecoveryFileSortSettings();
+  const auto apply = [](const FileSortSettings &value) {
+    return DataManager::SetValue("aera_file_sort_mode", static_cast<int>(value.mode)) == 0 &&
+        DataManager::SetValue("aera_file_sort_ascending", value.ascending ? 1 : 0) == 0;
+  };
+  // External storage can still be browsed while internal storage is locked.
+  // Keep sorting usable for this session without attempting a persistent write.
+  if (apply(settings) && (RecoveryDataLocked() || SaveAeraPreferences())) return true;
+  apply(previous);
+  return false;
 }
 bool RecoverySavePreferences() { return SaveAeraPreferences(); }
 bool RecoveryAutoSavePreferences() { return SaveAeraPreferences(true); }
@@ -2445,6 +2496,7 @@ bool RecoverySetDeveloperSetting(const std::string &id, const std::string &value
 bool RecoveryResetDeveloperSettings(std::string *error) {
   RecoveryDeveloperSettings();
   const bool restored = gDeveloperSettings.ResetAll(error);
+  DataManager::SetValue(AERA_PRESERVE_SPLASH_VAR, 0);
   DataManager::SetValue("aera_developer_settings", kernel::Encode(gDeveloperSettings.Saved()), 1);
   const bool saved = RecoveryAutoSavePreferences();
   if (!saved && error) *error = "Settings storage could not be saved.";
@@ -2621,6 +2673,7 @@ struct EarlyUiPreferences {
   int haptic_action;
   int preserve_recovery;
   int preserve_abl;
+  int preserve_splash;
   int backup_checksums;
   int verify_backup_checksums;
   int wifi_show_speed;
@@ -2704,6 +2757,7 @@ EarlyUiPreferences DefaultEarlyUiPreferences() {
   preferences.preserve_recovery =
       DataManager::GetIntValue(AERA_RECOVERY_PRESERVATION_SUPPORTED) != 0 ? 1 : 0;
   preferences.preserve_abl = 0;
+  preferences.preserve_splash = 0;
   preferences.backup_checksums = 1;
   preferences.verify_backup_checksums = 1;
   preferences.wifi_show_speed = 1;
@@ -2775,6 +2829,8 @@ EarlyUiPreferences CaptureCurrentEarlyUiPreferences() {
       DataManager::GetIntValue(AERA_PRESERVE_RECOVERY_VAR) != 0 ? 1 : 0;
   preferences.preserve_abl =
       DataManager::GetIntValue(AERA_PRESERVE_ABL_VAR) != 0 ? 1 : 0;
+  preferences.preserve_splash =
+      DataManager::GetIntValue(AERA_PRESERVE_SPLASH_VAR) != 0 ? 1 : 0;
   preferences.backup_checksums = DataManager::GetIntValue(TW_SKIP_DIGEST_GENERATE_VAR) == 0 ? 1 : 0;
   preferences.verify_backup_checksums = DataManager::GetStrValue("aera_verify_backup_checksums") != "0" ? 1 : 0;
   preferences.wifi_show_speed = DataManager::GetStrValue("aera_wifi_show_speed") != "0" ? 1 : 0;
@@ -3006,6 +3062,9 @@ bool SetEarlyUiValue(EarlyUiPreferences* preferences, const std::string& key,
   } else if (key == "preserve_abl") {
     if (!ParseInteger(value, 0, 1, &parsed)) return false;
     preferences->preserve_abl = parsed;
+  } else if (key == "preserve_splash") {
+    if (!ParseInteger(value, 0, 1, &parsed)) return false;
+    preferences->preserve_splash = parsed;
   } else if (key == "backup_checksums") {
     if (!ParseInteger(value, 0, 1, &parsed)) return false;
     preferences->backup_checksums = parsed;
@@ -3095,7 +3154,7 @@ void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
   DataManager::SetValue("aera_themed_home_icons", preferences.themed_home_icons);
   DataManager::SetValue("aera_interface_size", preferences.interface_size);
   DataManager::SetValue("aera_ui_font", preferences.ui_font);
-  DataManager::SetValue("tw_language", preferences.language);
+  DataManager::SetValue("tw_language", SessionLanguageOr(preferences.language));
   DataManager::SetValue("aera_keyboard_layout", preferences.keyboard_layout);
   DataManager::SetValue("aera_home_grid_columns", preferences.home_grid_columns);
   DataManager::SetValue("aera_dock_layout", preferences.dock_layout);
@@ -3110,6 +3169,7 @@ void ApplyEarlyUiPreferences(const EarlyUiPreferences& preferences) {
   DataManager::SetValue(AERA_PRESERVE_RECOVERY_VAR,
                         preferences.preserve_recovery);
   DataManager::SetValue(AERA_PRESERVE_ABL_VAR, preferences.preserve_abl);
+  DataManager::SetValue(AERA_PRESERVE_SPLASH_VAR, preferences.preserve_splash);
   DataManager::SetValue(TW_SKIP_DIGEST_GENERATE_VAR, preferences.backup_checksums ? 0 : 1);
   DataManager::SetValue("aera_verify_backup_checksums", preferences.verify_backup_checksums);
   DataManager::SetValue(TW_SKIP_DIGEST_CHECK_VAR, preferences.verify_backup_checksums);
@@ -3208,6 +3268,7 @@ std::string SerializeEarlyUiPreferences(const EarlyUiPreferences& preferences) {
          << "haptic_action=" << preferences.haptic_action << '\n'
          << "preserve_recovery=" << preferences.preserve_recovery << '\n'
          << "preserve_abl=" << preferences.preserve_abl << '\n'
+         << "preserve_splash=" << preferences.preserve_splash << '\n'
          << "backup_checksums=" << preferences.backup_checksums << '\n'
          << "verify_backup_checksums=" << preferences.verify_backup_checksums << '\n'
          << "wifi_show_speed=" << preferences.wifi_show_speed << '\n'
@@ -3364,6 +3425,11 @@ void LoadAeraPreferencesIfAvailable() {
     if (early_key) continue;
     if (key == "hidden")
       DataManager::SetValue("tw_hidden_files", value);
+    else if (key == "file_sort_mode" &&
+             (value == "0" || value == "1" || value == "2" || value == "3"))
+      DataManager::SetValue("aera_file_sort_mode", value);
+    else if (key == "file_sort_ascending" && (value == "0" || value == "1"))
+      DataManager::SetValue("aera_file_sort_ascending", value);
     else if (key == "compression") DataManager::SetValue(TW_USE_COMPRESSION_VAR, value);
     else if (key == "sha256") DataManager::SetValue(TW_USE_SHA2, value);
     else if (key == "verify_zip") DataManager::SetValue(TW_SIGNED_ZIP_VERIFY_VAR, value);
@@ -3413,6 +3479,8 @@ bool SaveAeraPreferences(bool require_early) {
   output << "clock24=" << DataManager::GetIntValue("tw_military_time") << '\n'
          << "developer_settings=" << CaptureCurrentEarlyUiPreferences().developer_settings << '\n'
          << "hidden=" << DataManager::GetIntValue("tw_hidden_files") << '\n'
+         << "file_sort_mode=" << DataManager::GetIntValue("aera_file_sort_mode") << '\n'
+         << "file_sort_ascending=" << (DataManager::GetStrValue("aera_file_sort_ascending") != "0" ? 1 : 0) << '\n'
          << "compression=" << DataManager::GetIntValue(TW_USE_COMPRESSION_VAR) << '\n'
          << "sha256=" << DataManager::GetIntValue(TW_USE_SHA2) << '\n'
          << "backup_checksums=" << (DataManager::GetIntValue(TW_SKIP_DIGEST_GENERATE_VAR) == 0 ? 1 : 0) << '\n'
@@ -3420,6 +3488,7 @@ bool SaveAeraPreferences(bool require_early) {
          << "verify_zip=" << DataManager::GetIntValue(TW_SIGNED_ZIP_VERIFY_VAR) << '\n'
          << "preserve_recovery=" << DataManager::GetIntValue(AERA_PRESERVE_RECOVERY_VAR) << '\n'
          << "preserve_abl=" << DataManager::GetIntValue(AERA_PRESERVE_ABL_VAR) << '\n'
+         << "preserve_splash=" << DataManager::GetIntValue(AERA_PRESERVE_SPLASH_VAR) << '\n'
          << "plugin_auto_update=" << DataManager::GetIntValue("aera_plugin_auto_update") << '\n'
          << "pc_auto_enable=" << DataManager::GetIntValue("aera_pc_auto_enable") << '\n'
          << "update_nightly=" << DataManager::GetIntValue("aera_update_nightly") << '\n'

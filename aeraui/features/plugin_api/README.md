@@ -162,6 +162,47 @@ selection, confirmation and preservation settings remain in the recovery flow.
 Clear all in Recents stops opted-in runtimes as well as the browser, prompting
 before stopping active plugin storage tasks. A later launch starts at Home.
 
+## Optional shared text clipboard
+
+Request `kFeatureClipboard` (bit 9) in the opt-in HELLO feature mask, and check
+the ACK before sending clipboard messages. Protocol version 2, packet size,
+old message IDs and legacy ACK flags are unchanged. No new manifest permission
+is needed: API 2 workers already run as root. This is AERA's native Copy/Cut/Paste
+clipboard, not Android's or the PC's clipboard. It is text-only, RAM-only and
+not automatically synchronized with other devices.
+
+Access requires the plugin's foreground view with no host confirmation modal
+or pending mediated operation. A detached/background or locked-out view receives
+an error. There is no per-copy confirmation dialog. Use explicit user actions
+such as Copy or Send clipboard; do not poll the clipboard in the background.
+
+All requests have a nonzero request ID and an empty title. The reply kind is
+`CLIPBOARD_RESULT` (73), echoes the ID and carries exactly one result flag:
+`kClipboardReady=1`, `kClipboardMore=2`, `kClipboardComplete=4`, or
+`kClipboardError=8`. On error, title is an English diagnostic, value is zero,
+and the shared clipboard is unchanged. Localize plugin UI independently.
+
+- **Get:** `GET_CLIPBOARD` (22), value/flags zero and empty text, snapshots the
+  clipboard. Each reply supplies up to 1023 bytes in text, with total UTF-8 byte
+  length in value. More means send another GET with the same ID,
+  `flags=kClipboardContinue` (1), and value equal to bytes received so far.
+  Complete ends the read, including an empty clipboard. Reassemble bytes before
+  UTF-8 decoding: an individual packet can end inside a multibyte character.
+- **Set:** `SET_CLIPBOARD` (23), value equal to the total UTF-8 byte count,
+  zero flags and empty text, starts a write. Wait for Ready, then send
+  `CLIPBOARD_CHUNK` (24) with the same ID, value equal to the byte offset, zero
+  flags and up to 1023 bytes in text. Each Ready reply acknowledges bytes staged
+  in value. The final reply is Complete; only then is the shared clipboard
+  replaced. SET with length zero clears it immediately and returns Complete.
+
+The limit is `kMaxClipboardBytes` (1 MiB). Embedded NULs, invalid UTF-8,
+oversized declarations and incorrect offsets/IDs are rejected, never silently
+truncated. A new GET/SET cancels the runtime's previous incomplete transaction;
+errors, leaving its view and disconnection discard staged data. Reads are stable
+snapshots even if the native clipboard changes while transferring. Always wait
+for each acknowledgement before sending the next packet and respect the existing
+128-worker-messages/second limit, including the plugin's other updates.
+
 ## Optional console commands
 
 Store and manually installed plugins may declare up to eight optional commands:

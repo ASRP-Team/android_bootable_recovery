@@ -1465,6 +1465,7 @@ Json::Value InspectPackage(Transfer &transfer) {
   std::set<std::string> protected_partitions;
   if (platform.get("preserve_abl", false).asBool()) protected_partitions.insert("abl");
   if (platform.get("preserve_recovery", false).asBool()) protected_partitions.insert("recovery");
+  if (platform.get("preserve_splash", false).asBool()) protected_partitions.insert("splash");
   result["partitions"] = Json::Value(Json::arrayValue);
   for (const auto &partition : info.partitions) {
     Json::Value entry;
@@ -2618,6 +2619,8 @@ void RefreshPlatformInfo() {
       aeraui::RecoveryPreference(aeraui::Preference::kPreserveAbl);
   info["preserve_recovery"] = aeraui::RecoveryPreservationSupported() &&
       aeraui::RecoveryPreference(aeraui::Preference::kPreserveRecovery);
+  info["preserve_splash"] = aeraui::RecoveryPreference(aeraui::Preference::kPreserveSplash) &&
+      aeraui::RecoverySplashPreservationSupported();
   utsname kernel{};
   if (uname(&kernel) == 0) { info["kernel"] = kernel.release; info["architecture"] = kernel.machine; }
   info["memory"] = ReadFile("/proc/meminfo", 8192);

@@ -211,9 +211,9 @@ void RefreshDownloads(WebScene *s) {
     auto *name = Label(row, download.name.c_str(),
                        &lv_font_montserrat_32, kText);
     lv_obj_set_pos(name, 88, 24);
-    lv_obj_set_width(name, width -
-        (download.status == web::DownloadStatus::kActive ? 265 : 130));
-    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    SingleLineLabel(name, width -
+        (download.status == web::DownloadStatus::kActive ? 265 : 130),
+        &lv_font_montserrat_32);
     std::string detail;
     if (download.status == web::DownloadStatus::kActive) {
       detail = FormatBytes(download.received_bytes);
@@ -233,8 +233,7 @@ void RefreshDownloads(WebScene *s) {
     auto *status = Label(row, detail.c_str(), &lv_font_montserrat_24,
                          kMutedStrong);
     lv_obj_set_pos(status, 88, 78);
-    lv_obj_set_width(status, width - 125);
-    lv_label_set_long_mode(status, LV_LABEL_LONG_DOT);
+    SingleLineLabel(status, width - 125, &lv_font_montserrat_24);
     auto *progress = lv_bar_create(row);
     lv_obj_set_pos(progress, 88, 137);
     lv_obj_set_size(progress, width - 126, 10);
@@ -431,11 +430,14 @@ void ShowBrowserSettings(WebScene *s) {
       &lv_font_montserrat_24, kMutedStrong);
   lv_obj_set_pos(subtitle, 176, 106);
 
+  // LVGL resolves object geometry lazily; measure the resized overlay first.
+  lv_obj_update_layout(overlay);
   const int content_width = std::min(1280, lv_obj_get_width(overlay) - 80);
   auto *content = lv_obj_create(overlay);
   Clear(content);
   lv_obj_set_pos(content, (lv_obj_get_width(overlay) - content_width) / 2, 176);
   lv_obj_set_size(content, content_width, lv_obj_get_height(overlay) - 360);
+  lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(content, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_ACTIVE);
 
@@ -491,8 +493,14 @@ void ShowBrowserSettings(WebScene *s) {
   lv_slider_set_range(zoom, 50, 300);
   lv_slider_set_value(zoom, settings->zoom, LV_ANIM_OFF);
   lv_obj_set_style_bg_color(zoom, kMainLine, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(zoom, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_bg_color(zoom, kAccent, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(zoom, LV_OPA_COVER, LV_PART_INDICATOR);
   lv_obj_set_style_bg_color(zoom, kAccent, LV_PART_KNOB);
+  lv_obj_set_style_bg_opa(zoom, LV_OPA_COVER, LV_PART_KNOB);
+  lv_obj_set_style_radius(zoom, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_radius(zoom, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
+  lv_obj_set_style_radius(zoom, LV_RADIUS_CIRCLE, LV_PART_KNOB);
   lv_obj_set_style_pad_all(zoom, 14, LV_PART_KNOB);
   lv_obj_add_event_cb(zoom, [](lv_event_t *event) {
     auto *settings = static_cast<BrowserSettingsUi *>(
