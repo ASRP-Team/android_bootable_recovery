@@ -4,6 +4,7 @@
  */
 
 #include "payload_inspector.hpp"
+#include "image_zip.hpp"
 #include "payload_arb.hpp"
 #include "payload_extract.hpp"
 #include <openssl/sha.h>
@@ -198,6 +199,7 @@ Info InspectZip(const std::string &path, bool read_arb) {
 
   ZipEntry64 payload_entry;
   if (FindEntry(archive, "payload.bin", &payload_entry) != 0) {
+    info = InspectImageZip(archive, path, read_arb);
     CloseArchive(archive);
     return info;
   }

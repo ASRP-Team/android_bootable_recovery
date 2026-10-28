@@ -82,6 +82,7 @@ void ArbRow(lv_obj_t *parent, const std::shared_ptr<ArbProgress> &progress, int 
 struct InstallGate {
   std::shared_ptr<ArbProgress> progress;
   bool includes_firmware = false;
+  bool selection_only = false;
   bool acknowledged = false;
   bool warned = false;
   lv_obj_t *overlay = nullptr;
@@ -172,7 +173,7 @@ void UpdateGate(const std::shared_ptr<InstallGate> &shared) {
     if (gate.advanced) lv_obj_add_flag(gate.advanced, LV_OBJ_FLAG_HIDDEN);
     if (gate.fast_flash) lv_obj_add_flag(gate.fast_flash, LV_OBJ_FLAG_HIDDEN);
   }
-  if (gate.AllowsInstall()) lv_obj_remove_flag(gate.slider, LV_OBJ_FLAG_HIDDEN);
+  if (gate.AllowsInstall() && !gate.selection_only) lv_obj_remove_flag(gate.slider, LV_OBJ_FLAG_HIDDEN);
   else lv_obj_add_flag(gate.slider, LV_OBJ_FLAG_HIDDEN);
   FitReview(gate);
   if (!gate.warned && (decision == D::Upgrade || decision == D::Downgrade)) {
@@ -200,6 +201,19 @@ void FullInfo(lv_obj_t *screen, const payload::Info &info, const std::string &pa
     Row(area, "Android", info.target_sdk);
     Row(area, "Security patch", info.security_patch);
     Row(area, "File", path);
+    if (info.is_image_zip) {
+      Section(area, "IMAGE ARCHIVE");
+      Row(area, "Requirements", info.image_zip_requirements);
+      Row(area, "Expanded size", Size(info.expanded_bytes));
+      if (!info.image_zip_layout.empty()) {
+        Section(area, "ROM LOGICAL LAYOUT");
+        for (const auto& part : info.image_zip_layout) Row(area, part.name.c_str(), part.group);
+      }
+      ArbRow(area, arb);
+      Section(area, "PARTITION IMAGES");
+      for (const auto& partition : info.partitions) Row(area, partition.name.c_str(), Size(partition.bytes));
+      return;
+    }
     Section(area, "PAYLOAD");
     Row(area, "Update type", info.incremental ? "Incremental" : "Full");
     Row(area, "Partition coverage", info.partial ? "Partial update" : "Full update");
@@ -265,7 +279,7 @@ void Explanation(lv_obj_t *parent, const std::string &text) {
 void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::string &path,
                    const std::shared_ptr<InstallGate> &gate, bool flash,
                    ActionCallback callback, void *context, bool direct = false) {
-  auto *page = AdvancedPage(parent, direct ? "Direct flash selected partitions" : flash ? "Flash selected partitions" : "Extract selected images");
+  auto *page = AdvancedPage(parent, info.is_image_zip && flash ? "Flash selected ZIP images" : direct ? "Direct flash selected partitions" : flash ? "Flash selected partitions" : "Extract selected images");
   const std::string slot = RecoverySlot();
   const auto protected_partitions = flash ? payload::ProtectedPartitions() : std::set<std::string>{};
   Explanation(page, flash ? i18n::Format("Choose images to write to slot %s. The active slot will not change.", slot.c_str())
@@ -278,19 +292,42 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
   lv_obj_set_style_pad_row(list, 16, 0);
   lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  auto apply_layout = std::make_shared<bool>(false);
+  if (info.is_image_zip && flash && !info.image_zip_layout.empty()) {
+    auto *layout = Button(page, "Apply ROM partition layout: Off", [] {});
+    Panel(layout, 24, kMainPanel);
+    lv_obj_set_size(layout, LV_PCT(100), 100);
+    OnClick(layout, [layout, apply_layout] {
+      *apply_layout = !*apply_layout;
+      i18n::BindLabel(lv_obj_get_child(layout, 0), *apply_layout ? "Apply ROM partition layout: On" : "Apply ROM partition layout: Off");
+      lv_obj_set_style_border_width(layout, *apply_layout ? 3 : 1, 0);
+      lv_obj_set_style_border_color(layout, *apply_layout ? kAccent : kMainLine, 0);
+    });
+    Explanation(page, "Enable for a stock-to-custom ROM switch. Requires every ROM logical image. Removes stock-only logical partitions in the current slot; preserves the other slot. Off preserves unselected partitions.");
+  }
   auto selected = std::make_shared<std::set<std::string>>();
   auto *summary = Label(page, "No partitions selected", &lv_font_montserrat_28, kMuted);
   lv_obj_set_width(summary, LV_PCT(100));
   auto *review = Button(page, flash ? "Review selected flash" : "Review extraction",
-      [page, info, path, gate, flash, direct, callback, context, slot, selected, protected_partitions] {
+      [page, info, path, gate, flash, direct, callback, context, slot, selected, protected_partitions, apply_layout] {
     if (selected->empty()) return;
     if (flash && (!gate || !gate->AllowsInstall())) {
       Sheet(page, "Package checks", "Wait for the ARB check and acknowledge any upgrade warning on the package review.");
       return;
     }
+    if (info.is_image_zip && flash) {
+      const auto error = RecoveryImageZipCompatibility(path);
+      if (!error.empty()) { Sheet(page, "Package incompatible", error); return; }
+      if (*apply_layout && std::any_of(info.image_zip_layout.begin(), info.image_zip_layout.end(),
+          [&](const auto& p) { return !selected->count(p.name); })) {
+        Sheet(page, "Select ROM images", "Select every logical image defined by the ROM before applying its partition layout.");
+        return;
+      }
+    }
     JobRequest request;
+    request.image_zip_apply_layout = *apply_layout;
     request.job = flash ? Job::kFlashPayload : Job::kExtractPayload;
-    request.title = direct ? "Direct flash selected partitions" : flash ? "Flash selected partitions" : "Extract selected images";
+    request.title = info.is_image_zip && flash ? "Flash selected ZIP images" : direct ? "Direct flash selected partitions" : flash ? "Flash selected partitions" : "Extract selected images";
     request.payload_direct = direct;
     request.payload_override_protection = flash && std::any_of(selected->begin(), selected->end(),
         [&](const auto &name) { return protected_partitions.count(name); });
@@ -307,7 +344,10 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
       bytes += partition.bytes;
     }
     std::string detail = names + "\n\n";
-    if (direct) {
+    if (info.is_image_zip && flash) {
+      detail += i18n::Format("Required staging storage: %s\nAll selected images are extracted and CRC-checked before writing. Written partitions are read back and SHA-256 verified. The active slot will not change.", Size(bytes).c_str());
+      if (*apply_layout) detail += "\n\nApply ROM partition layout: stock-only logical partitions in the CURRENT slot will be removed. The other slot is preserved. Shared data is not erased.";
+    } else if (direct) {
       detail += i18n::Format("Writes directly to current slot %s. No temporary images are saved. The written images are read back and SHA-256 checked before success. A damaged package or interrupted operation may leave the selected partitions incomplete. Do not reboot after a failure: reflash known-good images. This is not a normal OTA; no snapshot rollback, postinstall or slot activation is performed.", slot.c_str());
     } else {
       detail += i18n::Format("Required storage: %s", Size(bytes).c_str());
@@ -329,7 +369,12 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
   lv_obj_add_state(review, LV_STATE_DISABLED);
   std::vector<std::string> names;
   for (const auto &p : info.partitions) names.push_back(p.name);
-  const auto targets = flash ? RecoveryPayloadTargets(names) : std::vector<PayloadFlashTarget>{};
+  auto targets = flash ? RecoveryPayloadTargets(names) : std::vector<PayloadFlashTarget>{};
+  if (flash && info.is_image_zip) for (auto& target : targets) {
+    if (std::any_of(info.image_zip_layout.begin(), info.image_zip_layout.end(),
+        [&](const auto& p) { return p.name == target.name; }))
+      target = {target.name, "/logical/" + target.name, 0, false, 0, {}};
+  }
   const auto target_for = [&](const auto &partition) {
     return std::find_if(targets.begin(), targets.end(),
         [&](const auto &v) { return v.name == partition.name; });
@@ -466,7 +511,7 @@ void SelectPayload(lv_obj_t *parent, const payload::Info &info, const std::strin
 void AdvancedZip(lv_obj_t *screen, const payload::Info &info, const std::string &path,
                  const std::shared_ptr<InstallGate> &gate, ActionCallback callback, void *context) {
   auto *page = AdvancedPage(screen, "Advanced ZIP options");
-  if (!info.is_payload || !info.valid || info.incremental) {
+  if ((!info.is_payload && !info.is_image_zip) || !info.valid || info.incremental) {
     Explanation(page, info.incremental ? "This incremental payload depends on existing partition data. Use normal installation."
         : "This ZIP uses its own installer. Individual payload partition extraction is not available.");
     return;
@@ -483,6 +528,7 @@ void AdvancedZip(lv_obj_t *screen, const payload::Info &info, const std::string 
   Row(package, "Images", std::to_string(info.partitions.size()));
   Row(package, "Expanded size", Size(info.expanded_bytes));
   for (int mode : {0, 1, 2}) {
+    if (info.is_image_zip && mode != 2) continue;
     const bool flash = mode != 2, direct = mode == 1;
     auto *button = Button(page, direct ? "Direct flash selected partitions" : flash ? "Flash selected partitions" : "Extract selected images",
         [page, info, path, gate, flash, direct, callback, context] {
@@ -596,7 +642,7 @@ void Ready(lv_timer_t *timer) {
         SetJobRequest(request);
         callback(Action::kRunOperation, context);
       };
-  if (!info.is_payload) {
+  if (!info.is_payload && !info.is_image_zip) {
     Sheet(screen, "Install this package?", detail, install, 1500, false,
         SheetPresentation::kStandard, "Swipe to install", [screen, info, path, detail, callback, context](lv_obj_t *area) {
       Layout(area);
@@ -617,6 +663,7 @@ void Ready(lv_timer_t *timer) {
   }
   auto gate = std::make_shared<InstallGate>();
   gate->progress = arb;
+  gate->selection_only = info.is_image_zip;
   gate->includes_firmware = std::any_of(info.partitions.begin(), info.partitions.end(),
       [](const auto &p) { return p.name == "xbl_config"; });
   const bool ab = RecoveryAbDevice();
@@ -629,8 +676,8 @@ void Ready(lv_timer_t *timer) {
         SetJobRequest(ota_request);
         callback(Action::kRunOperation, context);
       };
-  Sheet(screen, "Install OTA update?", "", [gate, ota_install] {
-    if (gate->AllowsInstall()) ota_install();
+  Sheet(screen, info.is_image_zip ? "Review image package" : "Install OTA update?", "", [gate, ota_install] {
+    if (!gate->selection_only && gate->AllowsInstall()) ota_install();
   }, 1900, false,
         SheetPresentation::kStandard, "Swipe to install", [info, path, arb, gate, callback, context, ab, verify](lv_obj_t *area) {
     Layout(area);
@@ -642,12 +689,21 @@ void Ready(lv_timer_t *timer) {
     Row(area, "Device", info.target_device);
     Row(area, "Android", info.target_sdk);
     Row(area, "Security patch", info.security_patch);
-    Row(area, "Update type", info.incremental ? "Incremental OTA" : "Full OTA");
-    Row(area, "A/B device", ab ? "Yes" : "No");
-    Row(area, "Downgrade check", "Package metadata is checked during installation");
-    Row(area, "Signature verification", verify ? "Enabled" : "Disabled");
-    Row(area, "Payload size", Size(info.payload_bytes));
-    Explanation(area, "This is an OTA update package. Installation checks the package metadata against this device and stops if the package is older than the current build (downgrade protection).");
+    if (info.is_image_zip) {
+      Row(area, "Update type", "Fastboot image ZIP");
+      Row(area, "Images", std::to_string(info.partitions.size()));
+      Row(area, "Expanded size", Size(info.expanded_bytes));
+      const auto error = RecoveryImageZipCompatibility(path);
+      if (!error.empty()) Explanation(area, error);
+      if (!info.image_zip_layout.empty()) Explanation(area, "ROM partition layout available. super_empty.img is used as metadata only.");
+    } else {
+      Row(area, "Update type", info.incremental ? "Incremental OTA" : "Full OTA");
+      Row(area, "A/B device", ab ? "Yes" : "No");
+      Row(area, "Downgrade check", "Package metadata is checked during installation");
+      Row(area, "Signature verification", verify ? "Enabled" : "Disabled");
+      Row(area, "Payload size", Size(info.payload_bytes));
+      Explanation(area, "This is an OTA update package. Installation checks the package metadata against this device and stops if the package is older than the current build (downgrade protection).");
+    }
     ArbRow(area, arb);
     auto *details = Button(area, "Full information  " LV_SYMBOL_RIGHT,
         [info, path, arb, gate] { FullInfo(gate->overlay, info, path, arb); });
@@ -657,8 +713,12 @@ void Ready(lv_timer_t *timer) {
     lv_obj_set_style_border_color(details, kMainLine, 0);
     gate->details = details;
     if (!info.incremental) {
-      auto *fast = Button(area, "Fast flash (experimental)",
-          [info, path, gate, callback, context] { ReviewFastFlash(info, path, gate, callback, context); });
+      auto *fast = Button(area, info.is_image_zip ? "Select images to flash" : "Fast flash (experimental)",
+          [info, path, gate, callback, context] {
+        if (info.is_image_zip) SelectPayload(gate->overlay, info, path, gate, true, callback, context, true);
+        else ReviewFastFlash(info, path, gate, callback, context);
+      });
+      if (info.is_image_zip && !RecoveryImageZipCompatibility(path).empty()) lv_obj_add_state(fast, LV_STATE_DISABLED);
       lv_obj_set_size(fast, LV_PCT(100), 96);
       lv_obj_set_style_radius(fast, 24, 0);
       lv_obj_set_style_border_width(fast, 1, 0);

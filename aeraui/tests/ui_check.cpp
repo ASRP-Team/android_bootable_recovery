@@ -103,6 +103,8 @@ static bool adb_over_wifi = false;
 static bool adb_pairing = false;
 static std::vector<plugins::Plugin> home_plugins;
 static payload::Info review_info;
+static std::string image_zip_compatibility;
+std::string aeraui::RecoveryImageZipCompatibility(const std::string&) { return image_zip_compatibility; }
 namespace aeraui::payload {
 Info InspectZip(const std::string &, bool) { return review_info; }
 std::string Summary(const Info &) { return "Installer ZIP"; }
@@ -2484,6 +2486,43 @@ int main(int argc,char **argv) {
     }
     }
     wallpaper::Clear();
+    review_info = {};
+    review_info.is_image_zip = review_info.valid = true;
+    review_info.target_build = "Test fastboot image ZIP";
+    review_info.manifest_hash.assign(32, 'z');
+    review_info.partitions = {{"boot", 4096, 0, true, ""}, {"system", 4096, 0, true, ""},
+                             {"recovery", 4096, 0, true, ""}};
+    review_info.image_zip_layout = {{"system", "rom", 1}};
+    review_info.image_zip_groups = {{"rom", 65536}};
+    for (bool compatible : {true, false}) {
+      image_zip_compatibility = compatible ? "" : "Package requirement failed: board=sun";
+      ReviewPackage(screen, "/images.zip", RecordAction, nullptr);
+      for (int i = 0; i < 50 && !Find(screen, "Select images to flash"); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10)); Tick();
+      }
+      auto* select = Find(screen, "Select images to flash"); assert(select);
+      assert(lv_obj_has_state(select, LV_STATE_DISABLED) == !compatible);
+      assert(!Find(screen, "Fast flash (experimental)"));
+      if (compatible) {
+        lv_obj_send_event(select, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(Find(screen, "Flash selected ZIP images"));
+        auto* layout = Find(screen, "Apply ROM partition layout: Off"); assert(layout);
+        lv_obj_send_event(layout, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(Find(screen, "Apply ROM partition layout: On"));
+        auto* all = Find(screen, "Select all"); assert(all);
+        lv_obj_send_event(all, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(FindLabelContaining(screen, "2 selected /")); // Keep recovery is respected.
+        auto* review = Find(screen, "Review selected flash"); assert(review);
+        lv_obj_send_event(review, LV_EVENT_CLICKED, nullptr); Tick();
+        assert(FindLabelContaining(screen, "Required staging storage:"));
+        assert(FindLabelContaining(screen, "stock-only logical partitions"));
+        assert(!FindLabelContaining(screen, "No temporary images are saved"));
+        assert(callback_count == 0);
+        save("/tmp/aera-image-zip-confirmation.png");
+      }
+      lv_obj_clean(screen); Tick();
+    }
+    image_zip_compatibility.clear();
     review_info = {};
     ReviewPackage(screen, "/installer.zip", RecordAction, nullptr);
     for (int i = 0; i < 50 && !Find(screen, "Advanced  " LV_SYMBOL_RIGHT); ++i) {

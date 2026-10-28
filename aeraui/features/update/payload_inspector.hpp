@@ -11,6 +11,9 @@
 
 namespace aeraui::payload {
 
+struct ImageZipGroup { std::string name; uint64_t maximum_bytes = 0; };
+struct ImageZipPartition { std::string name, group; uint32_t attributes = 0; };
+
 struct Partition {
   std::string name;
   uint64_t bytes = 0;
@@ -18,10 +21,15 @@ struct Partition {
   bool extractable = false;
   std::string extraction_error;
   std::string sha256; // Raw 32-byte final image digest from the payload manifest.
+  bool sparse = false;
 };
 
 struct Info {
   bool is_payload = false;
+  bool is_image_zip = false;
+  std::string image_zip_requirements;
+  std::vector<ImageZipGroup> image_zip_groups;
+  std::vector<ImageZipPartition> image_zip_layout;
   bool valid = false;
   bool incremental = false;
   bool partial = false;

@@ -16,4 +16,15 @@ bool RunImageFlashBatch(bool& active, Prepare prepare, Operation operation, Rest
   } cleanup{active, restore};
   return prepare() && operation();
 }
+// Writer handles are local to operation and are closed before rollback. Never
+// restore old extents after writing begins: those extents may contain new data.
+template<class Prepare, class Operation, class Restore, class Started, class Rollback>
+bool RunPreparedImageFlashBatch(bool& active, Prepare prepare, Operation operation,
+                               Restore restore, Started writer_started, Rollback rollback) {
+  return RunImageFlashBatch(active, prepare, [&] {
+    const bool ok = operation();
+    if (!ok && !writer_started()) rollback();
+    return ok;
+  }, restore);
+}
 } // namespace aera

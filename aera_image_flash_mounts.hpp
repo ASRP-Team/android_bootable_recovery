@@ -3,12 +3,17 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cerrno>
+#include <cstdlib>
+#include <fstream>
 #include <set>
 #include <sstream>
 #include <string>
 #include <vector>
 #include <sys/mount.h>
 #include <sys/sysmacros.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace aera {
 
@@ -125,5 +130,53 @@ inline std::string FlashFilesystemOptions(const std::string& options) {
     out += option;
   }
   return out;
+}
+
+// Shared parents can propagate a restored bind into another saved alias.
+// Reuse that exact mount when its identity and flags match instead of stacking
+// a second bind at the alias. Conflicting or already stacked mounts fail closed.
+inline bool RestoreFlashMount(const FlashMount& saved) {
+  const auto flags = FlashMountFlags(saved.options + "," + saved.super_options);
+  const auto options = FlashFilesystemOptions(saved.super_options);
+  std::ifstream input("/proc/self/mountinfo");
+  if (!input) return false;
+  std::stringstream text;
+  text << input.rdbuf();
+  std::vector<FlashMount> current;
+  if (input.bad() || !ParseFlashMounts(text.str(), current) || current.empty()) { errno = EINVAL; return false; }
+  struct stat block{};
+  if (stat(saved.source.c_str(), &block) || !S_ISBLK(block.st_mode)) return false;
+  size_t existing = 0;
+  bool matches = true;
+  for (const auto& mount : current) {
+    if (mount.target != saved.target) continue;
+    ++existing;
+    matches &= mount.device == block.st_rdev && mount.root == saved.root &&
+        mount.type == saved.type && FlashMountFlags(mount.options + "," + mount.super_options) == flags;
+  }
+  if (existing) {
+    if (existing != 1 || !matches) { errno = EBUSY; return false; }
+    return mount(nullptr, saved.target.c_str(), nullptr, saved.propagation, nullptr) == 0;
+  }
+  if (saved.root == "/") {
+    if (mount(saved.source.c_str(), saved.target.c_str(), saved.type.c_str(), flags, options.c_str())) return false;
+  } else {
+    char temporary[] = "/tmp/aera-flash-mount-XXXXXX";
+    if (!mkdtemp(temporary)) return false;
+    if (mount(saved.source.c_str(), temporary, saved.type.c_str(), flags, options.c_str())) {
+      const int error = errno; rmdir(temporary); errno = error; return false;
+    }
+    bool ok = mount(nullptr, temporary, nullptr, MS_PRIVATE, nullptr) == 0;
+    const std::string source = std::string(temporary) + saved.root;
+    if (ok) ok = mount(source.c_str(), saved.target.c_str(), nullptr, MS_BIND, nullptr) == 0;
+    if (ok && mount(nullptr, saved.target.c_str(), nullptr, MS_BIND | MS_REMOUNT | flags, nullptr)) {
+      const int error = errno; umount2(saved.target.c_str(), 0); errno = error; ok = false;
+    }
+    const int error = errno;
+    if (umount2(temporary, 0)) return false;
+    rmdir(temporary);
+    if (!ok) { errno = error; return false; }
+  }
+  return mount(nullptr, saved.target.c_str(), nullptr, saved.propagation, nullptr) == 0;
 }
 }  // namespace aera

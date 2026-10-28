@@ -134,6 +134,7 @@ struct JobRequest {
   bool payload_arb_acknowledged = false;
   std::string expected_image_sha256; // Only set for verified selected OTA images.
   uint64_t expected_image_bytes = 0;
+  bool image_zip_apply_layout = false;
   bool payload_direct = false;
   bool payload_full = false; // Every image is mandatory except explicitly protected partitions.
   bool payload_override_protection = false; // Explicit manual Advanced selection only.
@@ -192,6 +193,7 @@ struct PayloadFlashProgress {
   std::vector<PayloadPartitionProgress> partitions;
 };
 PayloadFlashProgress RecoveryPayloadFlashProgress();
+std::string RecoveryImageZipCompatibility(const std::string& path);
 std::vector<PayloadFlashTarget> RecoveryPayloadTargets(const std::vector<std::string> &names);
 std::vector<Volume> RecoveryRestoreVolumes(const std::string &folder);
 std::string RecoveryStorage();
