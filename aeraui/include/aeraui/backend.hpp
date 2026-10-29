@@ -302,6 +302,19 @@ DiagnosticLogStatus RecoveryDiagnosticLogStatus();
 void RecoveryToggleDiagnosticLogging();
 bool RecoveryMtpEnabled();
 bool RecoverySetMtp(bool enabled);
+// SSH / SFTP server. Only available on builds with Wi-Fi support.
+bool RecoverySshSupported();
+bool RecoverySshRunning();
+bool RecoverySshStart(int port);
+void RecoverySshStop();
+int RecoverySshPort();
+bool RecoverySshSetPort(int port);
+std::string RecoverySshPassword();
+bool RecoverySshSetPassword(const std::string& password);
+std::string RecoverySshAuthorizedKeys();
+bool RecoverySshSetAuthorizedKeys(const std::string& keys);
+int RecoverySshKeyCount();
+std::string RecoverySshAddress();
 enum class Preference {
   kClock24,
   kHiddenFiles,

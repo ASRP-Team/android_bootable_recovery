@@ -15,7 +15,9 @@
 #include "../../aera_remote/pc_connection.hpp"
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <dirent.h>
 #include <memory>
 #include <map>
@@ -1657,6 +1659,52 @@ struct LockEditor {
   }
 };
 
+#ifdef OF_ENABLE_WLAN
+void EditSshText(Tools *state, const char *title, const char *hint,
+                 const std::string &initial, bool multiline, bool numeric,
+                 uint32_t max_length,
+                 const std::function<bool(const std::string &)> &save,
+                 const std::function<void(const std::string &)> &applied) {
+  auto *overlay = lv_obj_create(state->screen);
+  Clear(overlay);
+  lv_obj_set_user_data(overlay, &kModalMarker);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay, kMainCanvas, 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+  auto *heading = Label(overlay, title, &lv_font_montserrat_48, kText);
+  lv_obj_set_pos(heading, 64, 90);
+  auto *note = Label(overlay, hint, &lv_font_montserrat_24, kMuted);
+  lv_obj_set_pos(note, 64, 172);
+  lv_obj_set_width(note, lv_obj_get_width(state->screen) - 128);
+  lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+  auto *input = TextArea(overlay);
+  lv_obj_set_pos(input, 64, 240);
+  lv_obj_set_size(input, lv_obj_get_width(state->screen) - 128,
+                  multiline ? 220 : 120);
+  lv_textarea_set_one_line(input, !multiline);
+  lv_textarea_set_max_length(input, max_length);
+  if (numeric) lv_textarea_set_accepted_chars(input, "0123456789");
+  lv_textarea_set_text(input, initial.c_str());
+  auto *keyboard = lv_keyboard_create(overlay);
+  phone_keyboard::Apply(keyboard);
+  lv_keyboard_set_textarea(keyboard, input);
+  auto *save_button = Button(overlay, "Save", [state, overlay, input, save, applied] {
+    const std::string text = lv_textarea_get_text(input);
+    if (!save(text)) {
+      Sheet(state->screen, "SSH setting", "The change could not be saved.");
+      return;
+    }
+    if (applied) applied(text);
+    lv_obj_delete_async(overlay);
+  });
+  lv_obj_set_pos(save_button, 64, 480);
+  lv_obj_set_size(save_button, 580, 112);
+  auto *cancel = Button(overlay, "Cancel", [overlay] { lv_obj_delete_async(overlay); });
+  lv_obj_set_pos(cancel, 680, 480);
+  lv_obj_set_size(cancel, 580, 112);
+}
+#endif  // OF_ENABLE_WLAN
+
 void EditLockText(const std::shared_ptr<LockEditor> &editor, bool colour) {
   auto *overlay = lv_obj_create(editor->tools->screen);
   Clear(overlay);
@@ -2986,6 +3034,81 @@ void BuildPreferences(Tools *state) {
     }
     StyleSwitch(mtp_switch, RecoveryMtpEnabled());
   });
+
+#ifdef OF_ENABLE_WLAN
+  PreferenceSection(state, "SSH & SFTP");
+  auto *ssh_row = PreferenceEntry(state, LV_SYMBOL_WIFI, "SSH server",
+      RecoverySshRunning()
+          ? ("Listening on " +
+             (RecoverySshAddress().empty() ? std::string("this device")
+                                           : RecoverySshAddress()) +
+             ":" + std::to_string(RecoverySshPort()))
+          : "Root shell and SFTP access over the network. Password or key login.",
+      {}, true);
+  auto *ssh_switch = lv_switch_create(ssh_row);
+  StyleSwitch(ssh_switch, RecoverySshRunning());
+  OnClick(ssh_row, [state, ssh_switch] {
+    if (RecoverySshRunning()) {
+      RecoverySshStop();
+    } else if (!RecoverySshStart(RecoverySshPort())) {
+      Sheet(state->screen, "SSH unavailable",
+            "The server could not start. Connect to Wi-Fi and make sure the port is free.");
+      return;
+    }
+    StyleSwitch(ssh_switch, RecoverySshRunning());
+    Open(state, Action::kPreferences);
+  });
+
+  auto *ssh_password = PreferenceEntry(state, LV_SYMBOL_KEYBOARD, "SSH password",
+                                       RecoverySshPassword(), {});
+  auto *ssh_password_value =
+      lv_obj_get_child(lv_obj_get_child(ssh_password, 1), 1);
+  OnClick(ssh_password, [state, ssh_password_value] {
+    EditSshText(state, "SSH password",
+                "Used for root logins. Leave empty to generate a random password.",
+                RecoverySshPassword(), false, false, 64,
+                [](const std::string &text) { return RecoverySshSetPassword(text); },
+                [ssh_password_value](const std::string &) {
+                  lv_label_set_text(ssh_password_value,
+                                    RecoverySshPassword().c_str());
+                });
+  });
+
+  auto *ssh_port = PreferenceEntry(state, LV_SYMBOL_SETTINGS, "SSH port",
+                                   std::to_string(RecoverySshPort()), {});
+  auto *ssh_port_value = lv_obj_get_child(lv_obj_get_child(ssh_port, 1), 1);
+  OnClick(ssh_port, [state, ssh_port_value] {
+    EditSshText(state, "SSH port", "TCP port used by the SSH and SFTP server.",
+                std::to_string(RecoverySshPort()), false, true, 5,
+                [](const std::string &text) {
+                  const int port = std::atoi(text.c_str());
+                  if (port <= 0 || port > 65535) return false;
+                  return RecoverySshSetPort(port);
+                },
+                [ssh_port_value](const std::string &) {
+                  lv_label_set_text(ssh_port_value,
+                                    std::to_string(RecoverySshPort()).c_str());
+                });
+  });
+
+  auto *ssh_keys = PreferenceEntry(
+      state, LV_SYMBOL_FILE, "Authorized keys",
+      std::to_string(RecoverySshKeyCount()) + " key(s) imported", {});
+  auto *ssh_keys_value = lv_obj_get_child(lv_obj_get_child(ssh_keys, 1), 1);
+  OnClick(ssh_keys, [state, ssh_keys_value] {
+    EditSshText(state, "Authorized keys",
+                "One public key per line. Keys allow passwordless root login.",
+                RecoverySshAuthorizedKeys(), true, false, 8192,
+                [](const std::string &text) {
+                  return RecoverySshSetAuthorizedKeys(text);
+                },
+                [ssh_keys_value](const std::string &) {
+                  const std::string text =
+                      std::to_string(RecoverySshKeyCount()) + " key(s) imported";
+                  lv_label_set_text(ssh_keys_value, text.c_str());
+                });
+  });
+#endif  // OF_ENABLE_WLAN
 
   auto *reset = Button(state->list, "Reset preferences", [state] {
     Sheet(state->screen, "Reset preferences",

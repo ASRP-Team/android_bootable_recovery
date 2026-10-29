@@ -17,6 +17,9 @@
 #include "../partitions.hpp"
 #include "../twrp-functions.hpp"
 #include "../variables.h"
+#ifdef OF_ENABLE_WLAN
+#include "../aera_ssh/sshd.hpp"
+#endif
 
 namespace aera::rpc {
 namespace {
@@ -324,6 +327,49 @@ int Mirror(const Request &request, EventSink &events) {
   return 0;
 }
 
+#ifdef OF_ENABLE_WLAN
+int Ssh(const Request &request, EventSink &events) {
+  const std::string action = Text(request.arguments, "action", "status");
+  const int port = Number(request.arguments, "port", aera::ssh::Port());
+  if (action == "start") {
+    if (!aera::ssh::Start(port))
+      return Fail(events, "ssh_start_failed", "The SSH server could not start");
+  } else if (action == "stop") {
+    aera::ssh::Stop();
+  } else if (action == "password") {
+    if (!aera::ssh::SetPassword(Text(request.arguments, "password")))
+      return Fail(events, "ssh_password_failed", "Could not store the SSH password");
+  } else if (action == "port") {
+    if (!aera::ssh::SetPort(port))
+      return Fail(events, "ssh_port_failed", "Could not change the SSH port");
+  } else if (action == "keys" || action == "authorized_keys") {
+    if (!aera::ssh::SetAuthorizedKeys(Text(request.arguments, "keys")))
+      return Fail(events, "ssh_keys_failed", "Could not store the authorized keys");
+  } else if (action != "status") {
+    return Fail(events, "invalid_ssh_action", "Unknown SSH action: " + action, 2);
+  }
+
+  Json::Value value(Json::objectValue);
+  const bool running = aera::ssh::Running();
+  value["running"] = running;
+  value["port"] = aera::ssh::Port();
+  value["address"] = aera::ssh::Address();
+  value["password"] = aera::ssh::Password();
+  value["key_count"] = aera::ssh::KeyCount();
+  value["user"] = "root";
+  value["sftp"] = true;
+  if (running) {
+    const std::string address = value["address"].asString();
+    value["command"] = "ssh -p " + std::to_string(aera::ssh::Port()) + " root@" +
+                       (address.empty() ? std::string("127.0.0.1") : address);
+    value["sftp_command"] = "sftp -P " + std::to_string(aera::ssh::Port()) + " root@" +
+                            (address.empty() ? std::string("127.0.0.1") : address);
+  }
+  events.Data("ssh", value);
+  return 0;
+}
+#endif  // OF_ENABLE_WLAN
+
 }  // namespace
 
 int Execute(const Request &request, EventSink &events) {
@@ -373,6 +419,9 @@ int Execute(const Request &request, EventSink &events) {
   if (op == "transition") return Transition(request, events);
   if (op == "log") return Log(events);
   if (op == "mirror") return Mirror(request, events);
+#ifdef OF_ENABLE_WLAN
+  if (op == "ssh") return Ssh(request, events);
+#endif
   return Fail(events, "unsupported_operation",
               "This AERA RPC build does not support operation: " + op, 2);
 }

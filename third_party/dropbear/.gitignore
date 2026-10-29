@@ -1,0 +1,11 @@
+# Build artefacts. Dropbear is built out-of-tree via Android.mk.
+*.o
+*.a
+/obj
+*~
+.*.swp
+
+# In-tree configure output (not used by the Android build).
+/config.h
+/default_options_guard.h
+/localoptions.h

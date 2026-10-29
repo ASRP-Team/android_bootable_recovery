@@ -74,7 +74,8 @@ LOCAL_C_INCLUDES += \
 
 ifeq ($(OF_ENABLE_WLAN),1)
 LOCAL_SRC_FILES += aera_remote/pc_terminal.cpp
-LOCAL_REQUIRED_MODULES += ttyd_src
+LOCAL_SRC_FILES += aera_ssh/sshd.cpp
+LOCAL_REQUIRED_MODULES += ttyd_src aera_dropbear aera_sftp_server
 LOCAL_STATIC_LIBRARIES += libfusetwrp
 LOCAL_C_INCLUDES += $(LOCAL_PATH)/fuse/include
 LOCAL_SRC_FILES += \
@@ -883,6 +884,11 @@ include $(commands_TWRP_local_path)/injecttwrp/Android.mk \
     $(commands_TWRP_local_path)/adbbu/Android.mk \
     $(commands_TWRP_local_path)/twrpDigest/Android.mk \
     $(commands_TWRP_local_path)/attr/Android.mk
+
+ifeq ($(OF_ENABLE_WLAN),1)
+    include $(commands_TWRP_local_path)/third_party/dropbear/Android.mk \
+        $(commands_TWRP_local_path)/aera_ssh/Android.mk
+endif
 
 ifneq ($(TW_OZIP_DECRYPT_KEY),)
     TWRP_REQUIRED_MODULES += ozip_decrypt

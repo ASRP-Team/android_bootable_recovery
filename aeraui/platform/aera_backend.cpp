@@ -86,6 +86,7 @@
 #include "nas/NasManager.hpp"
 #include "wlan.hpp"
 #include "aera_wifi_dispatcher.hpp"
+#include "aera_ssh/sshd.hpp"
 #endif
 
 extern "C" int aeraui_install_package(const char *path) {
@@ -2300,6 +2301,45 @@ bool RecoverySetMtp(bool enabled) {
   if (result) DataManager::SetValue("tw_mtp_enabled", enabled ? 1 : 0);
   return result;
 }
+
+bool RecoverySshSupported() {
+#ifdef OF_ENABLE_WLAN
+  return true;
+#else
+  return false;
+#endif
+}
+
+#ifdef OF_ENABLE_WLAN
+bool RecoverySshRunning() { return aera::ssh::Running(); }
+bool RecoverySshStart(int port) { return aera::ssh::Start(port); }
+void RecoverySshStop() { aera::ssh::Stop(); }
+int RecoverySshPort() { return aera::ssh::Port(); }
+bool RecoverySshSetPort(int port) { return aera::ssh::SetPort(port); }
+std::string RecoverySshPassword() { return aera::ssh::Password(); }
+bool RecoverySshSetPassword(const std::string &password) {
+  return aera::ssh::SetPassword(password);
+}
+std::string RecoverySshAuthorizedKeys() { return aera::ssh::AuthorizedKeys(); }
+bool RecoverySshSetAuthorizedKeys(const std::string &keys) {
+  return aera::ssh::SetAuthorizedKeys(keys);
+}
+int RecoverySshKeyCount() { return aera::ssh::KeyCount(); }
+std::string RecoverySshAddress() { return aera::ssh::Address(); }
+#else
+bool RecoverySshRunning() { return false; }
+bool RecoverySshStart(int) { return false; }
+void RecoverySshStop() {}
+int RecoverySshPort() { return 22; }
+bool RecoverySshSetPort(int) { return false; }
+std::string RecoverySshPassword() { return {}; }
+bool RecoverySshSetPassword(const std::string &) { return false; }
+std::string RecoverySshAuthorizedKeys() { return {}; }
+bool RecoverySshSetAuthorizedKeys(const std::string &) { return false; }
+int RecoverySshKeyCount() { return 0; }
+std::string RecoverySshAddress() { return {}; }
+#endif
+
 static const char *PreferenceVariable(Preference preference) {
   switch (preference) {
     case Preference::kClock24: return "tw_military_time";
