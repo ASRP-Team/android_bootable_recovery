@@ -19,6 +19,7 @@
 #include "../variables.h"
 #ifdef OF_ENABLE_WLAN
 #include "../aera_ssh/sshd.hpp"
+#include "../aera_ftp/ftp.hpp"
 #endif
 
 namespace aera::rpc {
@@ -368,6 +369,42 @@ int Ssh(const Request &request, EventSink &events) {
   events.Data("ssh", value);
   return 0;
 }
+
+int Ftp(const Request &request, EventSink &events) {
+  const std::string action = Text(request.arguments, "action", "status");
+  const int port = Number(request.arguments, "port", aera::ftp::Port());
+  if (action == "start") {
+    if (!aera::ftp::Start(port))
+      return Fail(events, "ftp_start_failed", "The FTP server could not start");
+  } else if (action == "stop") {
+    aera::ftp::Stop();
+  } else if (action == "port") {
+    if (!aera::ftp::SetPort(port))
+      return Fail(events, "ftp_port_failed", "Could not change the FTP port");
+  } else if (action != "status") {
+    return Fail(events, "invalid_ftp_action", "Unknown FTP action: " + action, 2);
+  }
+
+  Json::Value value(Json::objectValue);
+  const bool running = aera::ftp::Running();
+  const std::string address = aera::ftp::Address();
+  const std::string password = aera::ssh::Password();
+  value["running"] = running;
+  value["port"] = aera::ftp::Port();
+  value["address"] = address;
+  value["user"] = "root";
+  value["password"] = password;
+  value["encrypted"] = false;
+  if (running) {
+    value["url"] = "ftp://root:" + password + "@" +
+                   (address.empty() ? std::string("127.0.0.1") : address) + ":" +
+                   std::to_string(aera::ftp::Port()) + "/";
+    value["command"] = "ftp " + (address.empty() ? std::string("127.0.0.1") : address) +
+                       " " + std::to_string(aera::ftp::Port());
+  }
+  events.Data("ftp", value);
+  return 0;
+}
 #endif  // OF_ENABLE_WLAN
 
 }  // namespace
@@ -421,6 +458,7 @@ int Execute(const Request &request, EventSink &events) {
   if (op == "mirror") return Mirror(request, events);
 #ifdef OF_ENABLE_WLAN
   if (op == "ssh") return Ssh(request, events);
+  if (op == "ftp") return Ftp(request, events);
 #endif
   return Fail(events, "unsupported_operation",
               "This AERA RPC build does not support operation: " + op, 2);

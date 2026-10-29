@@ -3036,7 +3036,7 @@ void BuildPreferences(Tools *state) {
   });
 
 #ifdef OF_ENABLE_WLAN
-  PreferenceSection(state, "SSH & SFTP");
+  PreferenceSection(state, "SSH, SFTP & FTP");
   auto *ssh_row = PreferenceEntry(state, LV_SYMBOL_WIFI, "SSH server",
       RecoverySshRunning()
           ? ("Listening on " +
@@ -3106,6 +3106,45 @@ void BuildPreferences(Tools *state) {
                   const std::string text =
                       std::to_string(RecoverySshKeyCount()) + " key(s) imported";
                   lv_label_set_text(ssh_keys_value, text.c_str());
+                });
+  });
+
+  auto *ftp_row = PreferenceEntry(state, LV_SYMBOL_UPLOAD, "FTP server",
+      RecoveryFtpRunning()
+          ? ("Listening on " +
+             (RecoveryFtpAddress().empty() ? std::string("this device")
+                                           : RecoveryFtpAddress()) +
+             ":" + std::to_string(RecoveryFtpPort()))
+          : "Plain FTP for legacy clients. Unencrypted; uses the SSH password.",
+      {}, true);
+  auto *ftp_switch = lv_switch_create(ftp_row);
+  StyleSwitch(ftp_switch, RecoveryFtpRunning());
+  OnClick(ftp_row, [state, ftp_switch] {
+    if (RecoveryFtpRunning()) {
+      RecoveryFtpStop();
+    } else if (!RecoveryFtpStart(RecoveryFtpPort())) {
+      Sheet(state->screen, "FTP unavailable",
+            "The server could not start. Make sure the port is free.");
+      return;
+    }
+    StyleSwitch(ftp_switch, RecoveryFtpRunning());
+    Open(state, Action::kPreferences);
+  });
+
+  auto *ftp_port = PreferenceEntry(state, LV_SYMBOL_SETTINGS, "FTP port",
+                                   std::to_string(RecoveryFtpPort()), {});
+  auto *ftp_port_value = lv_obj_get_child(lv_obj_get_child(ftp_port, 1), 1);
+  OnClick(ftp_port, [state, ftp_port_value] {
+    EditSshText(state, "FTP port", "TCP port used by the plain FTP server.",
+                std::to_string(RecoveryFtpPort()), false, true, 5,
+                [](const std::string &text) {
+                  const int port = std::atoi(text.c_str());
+                  if (port <= 0 || port > 65535) return false;
+                  return RecoveryFtpSetPort(port);
+                },
+                [ftp_port_value](const std::string &) {
+                  lv_label_set_text(ftp_port_value,
+                                    std::to_string(RecoveryFtpPort()).c_str());
                 });
   });
 #endif  // OF_ENABLE_WLAN
