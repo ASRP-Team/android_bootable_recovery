@@ -71876,39 +71876,57 @@
     },
     "SIM PIN verification failed": {
       "en": "SIM PIN verification failed",
-      "de_DE": "SIM-PIN konnte nicht bestätigt werden"
+      "de_DE": "SIM-PIN konnte nicht bestätigt werden",
+      "zh_CN": "SIM PIN 验证失败",
+      "zh_TW": "SIM PIN 驗證失敗"
     },
     "PIN result unknown. Check SIM status before trying again": {
       "en": "PIN result unknown. Check SIM status before trying again",
-      "de_DE": "PIN-Ergebnis unbekannt. Vor einem erneuten Versuch den SIM-Status prüfen"
+      "de_DE": "PIN-Ergebnis unbekannt. Vor einem erneuten Versuch den SIM-Status prüfen",
+      "zh_CN": "PIN 结果未知。请检查 SIM 状态后重试",
+      "zh_TW": "PIN 結果未知。請檢查 SIM 狀態後再試"
     },
     "Enter a 4 to 8 digit PIN for the selected SIM": {
       "en": "Enter a 4 to 8 digit PIN for the selected SIM",
-      "de_DE": "Die 4- bis 8-stellige PIN der gewählten SIM eingeben"
+      "de_DE": "Die 4- bis 8-stellige PIN der gewählten SIM eingeben",
+      "zh_CN": "为所选 SIM 输入 4 到 8 位 PIN",
+      "zh_TW": "為所選 SIM 輸入 4 到 8 位 PIN"
     },
     "This SIM cannot be identified. Enter its PIN without remembering it": {
       "en": "This SIM cannot be identified. Enter its PIN without remembering it",
-      "de_DE": "Diese SIM kann nicht identifiziert werden. PIN ohne Speichern eingeben"
+      "de_DE": "Diese SIM kann nicht identifiziert werden. PIN ohne Speichern eingeben",
+      "zh_CN": "无法识别此 SIM。请输入 PIN 但不要记住它",
+      "zh_TW": "無法識別此 SIM。請輸入 PIN 但不要記住它"
     },
     "Wait for the current SIM operation to finish": {
       "en": "Wait for the current SIM operation to finish",
-      "de_DE": "Warte, bis der aktuelle SIM-Vorgang abgeschlossen ist"
+      "de_DE": "Warte, bis der aktuelle SIM-Vorgang abgeschlossen ist",
+      "zh_CN": "请等待当前 SIM 操作完成",
+      "zh_TW": "請等待目前 SIM 操作完成"
     },
     "Could not forget SIM PIN": {
       "en": "Could not forget SIM PIN",
-      "de_DE": "Gespeicherte SIM-PIN konnte nicht gelöscht werden"
+      "de_DE": "Gespeicherte SIM-PIN konnte nicht gelöscht werden",
+      "zh_CN": "无法忘记 SIM PIN",
+      "zh_TW": "無法清除 SIM PIN"
     },
     "PIN request timed out. Check SIM status before trying again": {
       "en": "PIN request timed out. Check SIM status before trying again",
-      "de_DE": "Zeitüberschreitung bei der PIN-Abfrage. Vor einem erneuten Versuch den SIM-Status prüfen"
+      "de_DE": "Zeitüberschreitung bei der PIN-Abfrage. Vor einem erneuten Versuch den SIM-Status prüfen",
+      "zh_CN": "PIN 请求超时。请检查 SIM 状态后重试",
+      "zh_TW": "PIN 請求逾時。請檢查 SIM 狀態後再試"
     },
     "SIM state changed. Check the selected SIM and try again": {
       "en": "SIM state changed. Check the selected SIM and try again",
-      "de_DE": "SIM-Status geändert. Gewählte SIM prüfen und erneut versuchen"
+      "de_DE": "SIM-Status geändert. Gewählte SIM prüfen und erneut versuchen",
+      "zh_CN": "SIM 状态已改变。请检查所选 SIM 后重试",
+      "zh_TW": "SIM 狀態已變更。請檢查所選 SIM 後再試"
     },
     "SIM requires PUK. Unlock it in Android": {
       "en": "SIM requires PUK. Unlock it in Android",
-      "de_DE": "SIM benötigt die PUK. Bitte in Android entsperren"
+      "de_DE": "SIM benötigt die PUK. Bitte in Android entsperren",
+      "zh_CN": "SIM 需要 PUK。请在 Android 中解锁",
+      "zh_TW": "SIM 需要 PUK。請在 Android 中解鎖"
     },
     "Browse fonts": {
       "en": "Browse fonts",
@@ -73441,6 +73459,456 @@
       "vi_VN": "Chạy các lệnh recovery trong shell ASRP tích hợp.",
       "zh_CN": "在内置的 ASRP shell 中运行 recovery 命令。",
       "zh_TW": "在內建的 ASRP shell 中執行 recovery 命令。"
+    },
+    "Legacy OrangeFox add-ons: ZIP packages from /sdcard/AERA/plugins/fox and the add-ons bundled in this recovery image.": {
+      "en": "Legacy OrangeFox add-ons: ZIP packages from /sdcard/AERA/plugins/fox and the add-ons bundled in this recovery image.",
+      "zh_CN": "旧版 OrangeFox 附加组件：来自 /sdcard/AERA/plugins/fox 的 ZIP 包，以及此 recovery 镜像内置的附加组件。",
+      "zh_TW": "舊版 OrangeFox 附加元件：來自 /sdcard/AERA/plugins/fox 的 ZIP 套件，以及此 recovery 映像內建的附加元件。"
+    },
+    "No Fox add-ons found. Put ZIP packages in /sdcard/AERA/plugins/fox. Built-in OrangeFox add-ons appear when this recovery image ships them in /FFiles or /sdcard/Fox/FoxFiles.": {
+      "en": "No Fox add-ons found. Put ZIP packages in /sdcard/AERA/plugins/fox. Built-in OrangeFox add-ons appear when this recovery image ships them in /FFiles or /sdcard/Fox/FoxFiles.",
+      "zh_CN": "未找到 Fox 附加组件。请将 ZIP 包放入 /sdcard/AERA/plugins/fox。如果此 recovery 镜像在 /FFiles 或 /sdcard/Fox/FoxFiles 中自带 OrangeFox 附加组件，它们会显示在此处。",
+      "zh_TW": "找不到 Fox 附加元件。請將 ZIP 套件放入 /sdcard/AERA/plugins/fox。若此 recovery 映像在 /FFiles 或 /sdcard/Fox/FoxFiles 中內建 OrangeFox 附加元件，它們會顯示在此處。"
+    },
+    "AERA will run this OrangeFox ZIP through the standard installer.": {
+      "en": "AERA will run this OrangeFox ZIP through the standard installer.",
+      "zh_CN": "AERA 将通过标准安装器运行此 OrangeFox ZIP 包。",
+      "zh_TW": "AERA 將透過標準安裝器執行此 OrangeFox ZIP 套件。"
+    },
+    "AERA will run this ZIP through the standard installer. Local packages are not verified, so flash only add-ons you trust.": {
+      "en": "AERA will run this ZIP through the standard installer. Local packages are not verified, so flash only add-ons you trust.",
+      "zh_CN": "AERA 将通过标准安装器运行此 ZIP 包。本地包未经校验，请仅刷入你信任的附加组件。",
+      "zh_TW": "AERA 將透過標準安裝器執行此 ZIP 套件。本機套件未經證實，請僅刷入你信任的附加元件。"
+    },
+    "Flash this add-on?": {
+      "en": "Flash this add-on?",
+      "zh_CN": "刷入此附加组件？",
+      "zh_TW": "刷入此附加元件？"
+    },
+    "Flash add-on": {
+      "en": "Flash add-on",
+      "zh_CN": "刷入附加组件",
+      "zh_TW": "刷入附加元件"
+    },
+    "Fox Add-ons": {
+      "en": "Fox Add-ons",
+      "zh_CN": "Fox 附加组件",
+      "zh_TW": "Fox 附加元件"
+    },
+    "Built-in": {
+      "en": "Built-in",
+      "zh_CN": "内置",
+      "zh_TW": "內建"
+    },
+    "Local package": {
+      "en": "Local package",
+      "zh_CN": "本地包",
+      "zh_TW": "本機套件"
+    },
+    "OrangeFox built-in add-on": {
+      "en": "OrangeFox built-in add-on",
+      "zh_CN": "OrangeFox 内置附加组件",
+      "zh_TW": "OrangeFox 內建附加元件"
+    },
+    "Legacy add-on package": {
+      "en": "Legacy add-on package",
+      "zh_CN": "旧版附加组件包",
+      "zh_TW": "舊版附加元件套件"
+    },
+    "Built-in OrangeFox add-on. It runs through the standard ZIP installer.": {
+      "en": "Built-in OrangeFox add-on. It runs through the standard ZIP installer.",
+      "zh_CN": "内置 OrangeFox 附加组件。它通过标准 ZIP 安装器运行。",
+      "zh_TW": "內建 OrangeFox 附加元件。它透過標準 ZIP 安裝器執行。"
+    },
+    "Legacy Fox add-on from /sdcard/AERA/plugins/fox.": {
+      "en": "Legacy Fox add-on from /sdcard/AERA/plugins/fox.",
+      "zh_CN": "来自 /sdcard/AERA/plugins/fox 的旧版 Fox 附加组件。",
+      "zh_TW": "來自 /sdcard/AERA/plugins/fox 的舊版 Fox 附加元件。"
+    },
+    "Remove lock password": {
+      "en": "Remove lock password",
+      "zh_CN": "移除锁屏密码",
+      "zh_TW": "移除鎖定螢幕密碼"
+    },
+    "Remove survival scripts": {
+      "en": "Remove survival scripts",
+      "zh_CN": "移除 survival 脚本",
+      "zh_TW": "移除 survival 指令碼"
+    },
+    "Remove OrangeFox files": {
+      "en": "Remove OrangeFox files",
+      "zh_CN": "移除 OrangeFox 文件",
+      "zh_TW": "移除 OrangeFox 檔案"
+    },
+    "Remove OrangeFox themes": {
+      "en": "Remove OrangeFox themes",
+      "zh_CN": "移除 OrangeFox 主题",
+      "zh_TW": "移除 OrangeFox 主題"
+    },
+    "Reset OrangeFox settings": {
+      "en": "Reset OrangeFox settings",
+      "zh_CN": "重置 OrangeFox 设置",
+      "zh_TW": "重設 OrangeFox 設定"
+    },
+    "Back up OrangeFox settings": {
+      "en": "Back up OrangeFox settings",
+      "zh_CN": "备份 OrangeFox 设置",
+      "zh_TW": "備份 OrangeFox 設定"
+    },
+    "Enable init.d support": {
+      "en": "Enable init.d support",
+      "zh_CN": "启用 init.d 支持",
+      "zh_TW": "啟用 init.d 支援"
+    },
+    "Install Magisk": {
+      "en": "Install Magisk",
+      "zh_CN": "安装 Magisk",
+      "zh_TW": "安裝 Magisk"
+    },
+    "Uninstall Magisk": {
+      "en": "Uninstall Magisk",
+      "zh_CN": "卸载 Magisk",
+      "zh_TW": "解除安裝 Magisk"
+    },
+    "%s\n\n%s": {
+      "en": "%s\n\n%s",
+      "zh_CN": "%s\n\n%s",
+      "zh_TW": "%s\n\n%s"
+    },
+    "SIM %d": {
+      "en": "SIM %d",
+      "zh_CN": "SIM %d",
+      "zh_TW": "SIM %d"
+    },
+    "Access point name": {
+      "en": "Access point name",
+      "zh_CN": "接入点名称",
+      "zh_TW": "存取點名稱"
+    },
+    "Connect when recovery starts": {
+      "en": "Connect when recovery starts",
+      "zh_CN": "recovery 启动时连接",
+      "zh_TW": "recovery 啟動時連線"
+    },
+    "Required staging storage: %s\nAll selected images are extracted and CRC-checked before writing. Written partitions are read back and SHA-256 verified. The active slot will not change.": {
+      "en": "Required staging storage: %s\nAll selected images are extracted and CRC-checked before writing. Written partitions are read back and SHA-256 verified. The active slot will not change.",
+      "zh_CN": "所需暂存空间：%s\n所有选定镜像都会先解压并校验 CRC，然后再写入。写入的分区会回读并进行 SHA-256 校验。活动槽位不会改变。",
+      "zh_TW": "所需暫存空間：%s\n所有選定映像都會先解壓並校驗 CRC，然後再寫入。寫入的分割區會回讀並進行 SHA-256 校驗。作用中槽位不會改變。"
+    },
+    "Requirements": {
+      "en": "Requirements",
+      "zh_CN": "要求",
+      "zh_TW": "需求"
+    },
+    "Apply ROM partition layout: Off": {
+      "en": "Apply ROM partition layout: Off",
+      "zh_CN": "应用 ROM 分区布局：关闭",
+      "zh_TW": "套用 ROM 分割區配置：關閉"
+    },
+    "Package incompatible": {
+      "en": "Package incompatible",
+      "zh_CN": "包不兼容",
+      "zh_TW": "套件不相容"
+    },
+    "Select ROM images": {
+      "en": "Select ROM images",
+      "zh_CN": "选择 ROM 镜像",
+      "zh_TW": "選擇 ROM 映像"
+    },
+    "Provider\n%s\n\n": {
+      "en": "Provider\n%s\n\n",
+      "zh_CN": "提供方\n%s\n\n",
+      "zh_TW": "提供者\n%s\n\n"
+    },
+    "Exact kernel interface\n%s\n\n": {
+      "en": "Exact kernel interface\n%s\n\n",
+      "zh_CN": "精确内核接口\n%s\n\n",
+      "zh_TW": "精確核心介面\n%s\n\n"
+    },
+    "Target\n%s_%s\n\n": {
+      "en": "Target\n%s_%s\n\n",
+      "zh_CN": "目标\n%s_%s\n\n",
+      "zh_TW": "目標\n%s_%s\n\n"
+    },
+    "AERA creates a full rollback image, lets kptools patch %s with the kpimg you supplied, verifies the result, and only then writes the selected slot.": {
+      "en": "AERA creates a full rollback image, lets kptools patch %s with the kpimg you supplied, verifies the result, and only then writes the selected slot.",
+      "zh_CN": "AERA 会创建完整的回滚镜像，使用你提供的 kpimg 让 kptools 修补 %s，验证结果后再写入选定的槽位。",
+      "zh_TW": "AERA 會建立完整的回復映像，使用你提供的 kpimg 讓 kptools 修補 %s，驗證結果後再寫入選定的槽位。"
+    },
+    "AERA verifies the exact matching module, creates a full rollback image, lets ksud patch %s, verifies it, and only then writes the selected slot.": {
+      "en": "AERA verifies the exact matching module, creates a full rollback image, lets ksud patch %s, verifies it, and only then writes the selected slot.",
+      "zh_CN": "AERA 会验证精确匹配的模块，创建完整的回滚镜像，让 ksud 修补 %s，验证后再写入选定的槽位。",
+      "zh_TW": "AERA 會驗證精確符合的模組，建立完整的回復映像，讓 ksud 修補 %s，驗證後再寫入選定的槽位。"
+    },
+    "Patch %s_%s?": {
+      "en": "Patch %s_%s?",
+      "zh_CN": "修补 %s_%s？",
+      "zh_TW": "修補 %s_%s？"
+    },
+    "Restore %s_%s?": {
+      "en": "Restore %s_%s?",
+      "zh_CN": "恢复 %s_%s？",
+      "zh_TW": "還原 %s_%s？"
+    },
+    "KernelPatch target %s_%s": {
+      "en": "KernelPatch target %s_%s",
+      "zh_CN": "KernelPatch 目标 %s_%s",
+      "zh_TW": "KernelPatch 目標 %s_%s"
+    },
+    "APatch/FolkPatch modify the kernel in boot; target inspection applies to the KernelSU family only.": {
+      "en": "APatch/FolkPatch modify the kernel in boot; target inspection applies to the KernelSU family only.",
+      "zh_CN": "APatch/FolkPatch 在 boot 中修改内核；目标检查仅适用于 KernelSU 系列。",
+      "zh_TW": "APatch/FolkPatch 在 boot 中修改核心；目標檢查僅適用於 KernelSU 系列。"
+    },
+    "ROOT FAMILY": {
+      "en": "ROOT FAMILY",
+      "zh_CN": "ROOT 类别",
+      "zh_TW": "ROOT 類別"
+    },
+    "DISTRIBUTION": {
+      "en": "DISTRIBUTION",
+      "zh_CN": "发行版",
+      "zh_TW": "發行版"
+    },
+    "TARGET PARTITION": {
+      "en": "TARGET PARTITION",
+      "zh_CN": "目标分区",
+      "zh_TW": "目標分割區"
+    },
+    "SSH setting": {
+      "en": "SSH setting",
+      "zh_CN": "SSH 设置",
+      "zh_TW": "SSH 設定"
+    },
+    "SSH unavailable": {
+      "en": "SSH unavailable",
+      "zh_CN": "SSH 不可用",
+      "zh_TW": "SSH 無法使用"
+    },
+    "FTP unavailable": {
+      "en": "FTP unavailable",
+      "zh_CN": "FTP 不可用",
+      "zh_TW": "FTP 無法使用"
+    },
+    "No selection - the complete archive will be extracted": {
+      "en": "No selection - the complete archive will be extracted",
+      "zh_CN": "未选择任何内容 - 将解压完整压缩包",
+      "zh_TW": "未選擇任何項目 - 將解壓完整壓縮檔"
+    },
+    "%zu selected ZIP items": {
+      "en": "%zu selected ZIP items",
+      "zh_CN": "已选择 %zu 个 ZIP 项目",
+      "zh_TW": "已選擇 %zu 個 ZIP 項目"
+    },
+    "%s\n\nThe ZIP will be safely rewritten and verified before the original is replaced.": {
+      "en": "%s\n\nThe ZIP will be safely rewritten and verified before the original is replaced.",
+      "zh_CN": "%s\n\n在原文件被替换前，ZIP 会被安全地重写并校验。",
+      "zh_TW": "%s\n\n在原始檔案被取代前，ZIP 會被安全地重寫並校驗。"
+    },
+    "%s\n\n%s\n%s\n\n%s\n%s": {
+      "en": "%s\n\n%s\n%s\n\n%s\n%s",
+      "zh_CN": "%s\n\n%s\n%s\n\n%s\n%s",
+      "zh_TW": "%s\n\n%s\n%s\n\n%s\n%s"
+    },
+    "%s checksum": {
+      "en": "%s checksum",
+      "zh_CN": "%s 校验和",
+      "zh_TW": "%s 校驗碼"
+    },
+    "Extract to": {
+      "en": "Extract to",
+      "zh_CN": "解压到",
+      "zh_TW": "解壓到"
+    },
+    "Extract here": {
+      "en": "Extract here",
+      "zh_CN": "解压到此处",
+      "zh_TW": "解壓到此處"
+    },
+    "Cannot extract archive": {
+      "en": "Cannot extract archive",
+      "zh_CN": "无法解压压缩包",
+      "zh_TW": "無法解壓縮壓縮檔"
+    },
+    "Cannot open archive": {
+      "en": "Cannot open archive",
+      "zh_CN": "无法打开压缩包",
+      "zh_TW": "無法開啟壓縮檔"
+    },
+    "Archive": {
+      "en": "Archive",
+      "zh_CN": "压缩包",
+      "zh_TW": "壓縮檔"
+    },
+    "Delete from ZIP?": {
+      "en": "Delete from ZIP?",
+      "zh_CN": "从 ZIP 中删除？",
+      "zh_TW": "從 ZIP 中刪除？"
+    },
+    "Checksum unavailable": {
+      "en": "Checksum unavailable",
+      "zh_CN": "校验和不可用",
+      "zh_TW": "校驗碼無法取得"
+    },
+    "Connect Wi-Fi before mounting network storage": {
+      "en": "Connect Wi-Fi before mounting network storage",
+      "zh_CN": "挂载网络存储前请先连接 Wi-Fi",
+      "zh_TW": "掛載網路儲存前請先連線 Wi-Fi"
+    },
+    "Choose how AERA signs in to your SFTP server": {
+      "en": "Choose how AERA signs in to your SFTP server",
+      "zh_CN": "选择 AERA 登录 SFTP 服务器的方式",
+      "zh_TW": "選擇 AERA 登入 SFTP 伺服器的方式"
+    },
+    "Share, remote path and domain settings": {
+      "en": "Share, remote path and domain settings",
+      "zh_CN": "共享、远程路径和域设置",
+      "zh_TW": "共用、遠端路徑與網域設定"
+    },
+    "Choose Wi-Fi network": {
+      "en": "Choose Wi-Fi network",
+      "zh_CN": "选择 Wi-Fi 网络",
+      "zh_TW": "選擇 Wi-Fi 網路"
+    },
+    "Select a saved network or enter its SSID manually.": {
+      "en": "Select a saved network or enter its SSID manually.",
+      "zh_CN": "选择已保存的网络或手动输入其 SSID。",
+      "zh_TW": "選擇已儲存的網路或手動輸入其 SSID。"
+    },
+    "No saved networks": {
+      "en": "No saved networks",
+      "zh_CN": "没有已保存的网络",
+      "zh_TW": "沒有已儲存的網路"
+    },
+    "Save a network in Wi-Fi settings, or enter its SSID manually.": {
+      "en": "Save a network in Wi-Fi settings, or enter its SSID manually.",
+      "zh_CN": "在 Wi-Fi 设置中保存网络，或手动输入其 SSID。",
+      "zh_TW": "在 Wi-Fi 設定中儲存網路，或手動輸入其 SSID。"
+    },
+    "Enter SSID manually": {
+      "en": "Enter SSID manually",
+      "zh_CN": "手动输入 SSID",
+      "zh_TW": "手動輸入 SSID"
+    },
+    "Mobile data": {
+      "en": "Mobile data",
+      "zh_CN": "移动数据",
+      "zh_TW": "行動數據"
+    },
+    "ADB sideload": {
+      "en": "ADB sideload",
+      "zh_CN": "ADB 侧载",
+      "zh_TW": "ADB 側載"
+    },
+    "Backing up %s_%s": {
+      "en": "Backing up %s_%s",
+      "zh_CN": "正在备份 %s_%s",
+      "zh_TW": "正在備份 %s_%s"
+    },
+    "Patching %s with kptools": {
+      "en": "Patching %s with kptools",
+      "zh_CN": "正在使用 kptools 修补 %s",
+      "zh_TW": "正在使用 kptools 修補 %s"
+    },
+    "Flashing %s_%s": {
+      "en": "Flashing %s_%s",
+      "zh_CN": "正在刷入 %s_%s",
+      "zh_TW": "正在刷入 %s_%s"
+    },
+    "%s was installed to %s_%s. Backup: %s": {
+      "en": "%s was installed to %s_%s. Backup: %s",
+      "zh_CN": "%s 已安装到 %s_%s。备份：%s",
+      "zh_TW": "%s 已安裝到 %s_%s。備份：%s"
+    },
+    "%s %s was installed to %s_%s. Backup: %s": {
+      "en": "%s %s was installed to %s_%s. Backup: %s",
+      "zh_CN": "%s %s 已安装到 %s_%s。备份：%s",
+      "zh_TW": "%s %s 已安裝到 %s_%s。備份：%s"
+    },
+    "No valid AERA %s_%s backup was found.": {
+      "en": "No valid AERA %s_%s backup was found.",
+      "zh_CN": "未找到有效的 AERA %s_%s 备份。",
+      "zh_TW": "找不到有效的 AERA %s_%s 備份。"
+    },
+    "Restoring %s_%s": {
+      "en": "Restoring %s_%s",
+      "zh_CN": "正在恢复 %s_%s",
+      "zh_TW": "正在還原 %s_%s"
+    },
+    "Fox add-on compatibility is still experimental. Add-ons may behave in unexpected ways.": {
+      "en": "Fox add-on compatibility is still experimental. Add-ons may behave in unexpected ways.",
+      "zh_CN": "Fox 附加组件兼容性仍处于测试阶段，附加组件可能会出现预期外的行为。",
+      "zh_TW": "Fox 附加元件相容性仍處於測試階段，附加元件可能出現預期外的行為。"
+    },
+    "Force enabled": {
+      "en": "Force enabled",
+      "zh_CN": "已强制启用",
+      "zh_TW": "已強制啟用"
+    },
+    "Force enable": {
+      "en": "Force enable",
+      "zh_CN": "强制启用",
+      "zh_TW": "強制啟用"
+    },
+    "Warning 1 of 3": {
+      "en": "Warning 1 of 3",
+      "zh_CN": "警告 1/3",
+      "zh_TW": "警告 1/3"
+    },
+    "Warning 2 of 3": {
+      "en": "Warning 2 of 3",
+      "zh_CN": "警告 2/3",
+      "zh_TW": "警告 2/3"
+    },
+    "Warning 3 of 3": {
+      "en": "Warning 3 of 3",
+      "zh_CN": "警告 3/3",
+      "zh_TW": "警告 3/3"
+    },
+    "Fox add-on compatibility is still experimental. ASRP disabled this add-on by default because it may conflict with ASRP features or behave unpredictably.": {
+      "en": "Fox add-on compatibility is still experimental. ASRP disabled this add-on by default because it may conflict with ASRP features or behave unpredictably.",
+      "zh_CN": "Fox 附加组件兼容性仍处于测试阶段。ASRP 默认禁用了此附加组件，因为它可能与 ASRP 的功能冲突或行为不可预期。",
+      "zh_TW": "Fox 附加元件相容性仍處於測試階段。ASRP 預設停用了此附加元件，因為它可能與 ASRP 的功能衝突或行為無法預期。"
+    },
+    "Detected: %s": {
+      "en": "Detected: %s",
+      "zh_CN": "检测到：%s",
+      "zh_TW": "偵測到：%s"
+    },
+    "Force enabling bypasses ASRP's protection. If this add-on crashes ASRP or damages your device, you must recover it yourself. Continue only if you trust this package.": {
+      "en": "Force enabling bypasses ASRP's protection. If this add-on crashes ASRP or damages your device, you must recover it yourself. Continue only if you trust this package.",
+      "zh_CN": "强制启用会绕过 ASRP 的保护。如果此附加组件导致 ASRP 崩溃或损坏你的设备，你需要自行恢复。请仅在你信任此包时继续。",
+      "zh_TW": "強制啟用會繞過 ASRP 的保護。如果此附加元件導致 ASRP 當機或損壞你的裝置，你需要自行復原。請僅在你信任此套件時繼續。"
+    },
+    "Swipe to continue": {
+      "en": "Swipe to continue",
+      "zh_CN": "滑动以继续",
+      "zh_TW": "滑動以繼續"
+    },
+    "Swipe to force enable": {
+      "en": "Swipe to force enable",
+      "zh_CN": "滑动以强制启用",
+      "zh_TW": "滑動以強制啟用"
+    },
+    "ASRP already manages root installation through Root Manager, so this add-on is disabled.": {
+      "en": "ASRP already manages root installation through Root Manager, so this add-on is disabled.",
+      "zh_CN": "ASRP 已通过 Root Manager 提供 root 安装与管理，因此此附加组件被禁用。",
+      "zh_TW": "ASRP 已透過 Root Manager 提供 root 安裝與管理，因此此附加元件已停用。"
+    },
+    "ASRP already includes a Theme Engine, so this theme add-on is disabled.": {
+      "en": "ASRP already includes a Theme Engine, so this theme add-on is disabled.",
+      "zh_CN": "ASRP 已内置主题引擎，因此此主题附加组件被禁用。",
+      "zh_TW": "ASRP 已內建主題引擎，因此此主題附加元件已停用。"
+    },
+    "ASRP already backs up, restores, and wipes partitions, so this partition add-on is disabled.": {
+      "en": "ASRP already backs up, restores, and wipes partitions, so this partition add-on is disabled.",
+      "zh_CN": "ASRP 已提供分区备份、恢复和清除功能，因此此分区附加组件被禁用。",
+      "zh_TW": "ASRP 已提供分割區備份、還原與清除功能，因此此分割區附加元件已停用。"
+    },
+    "This add-on uses low-level flashing or OrangeFox-specific commands that the standard installer cannot run safely, so ASRP disabled it.": {
+      "en": "This add-on uses low-level flashing or OrangeFox-specific commands that the standard installer cannot run safely, so ASRP disabled it.",
+      "zh_CN": "此附加组件使用了底层刷写或 OrangeFox 专有命令，标准安装器无法安全执行，因此 ASRP 已将其禁用。",
+      "zh_TW": "此附加元件使用了底層刷寫或 OrangeFox 專有命令，標準安裝器無法安全執行，因此 ASRP 已將其停用。"
     }
   }
 }

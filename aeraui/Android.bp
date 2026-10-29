@@ -89,6 +89,7 @@ cc_library_static {
         "features/fonts/fontsource.cpp",
         "features/fonts/font_library.cpp",
         "features/fonts/fontsource_download.cpp",
+        "features/fox/fox_addons.cpp",
         "features/media/launcher.cpp",
         "features/media/session.cpp",
         "features/nas/smb_browser.cpp",

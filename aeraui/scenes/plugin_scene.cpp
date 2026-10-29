@@ -6,11 +6,13 @@
 #include <algorithm>
 #include <cctype>
 #include <mutex>
+#include <set>
 #include <string>
 #include <lvgl.h>
 #include "design.hpp"
 #include "phone_keyboard.hpp"
 #include "picture_viewer.hpp"
+#include "fox/fox_addons.hpp"
 #include "plugins/plugin_manager.hpp"
 #include "plugins/store_metadata.hpp"
 #include "retroarch_icon.hpp"
@@ -22,7 +24,7 @@ namespace {
 using namespace design;
 using namespace widgets;
 
-enum class View { kStore, kInstalled, kUpdates };
+enum class View { kStore, kInstalled, kUpdates, kFoxAddons };
 const char *const kCategories[] = {"", "tools", "backup", "multimedia", "network", "games", "themes"};
 
 struct State {
@@ -30,7 +32,7 @@ struct State {
   ActionCallback callback = nullptr;
   void *context = nullptr;
   PluginScene scene{};
-  lv_obj_t *tabs[3]{};
+  lv_obj_t *tabs[4]{};
   lv_obj_t *filters = nullptr;
   lv_obj_t *search = nullptr;
   lv_obj_t *clear_search = nullptr;
@@ -43,6 +45,9 @@ struct State {
   unsigned category_index = 0;
   std::string query;
   std::string detail_id;
+  std::vector<fox::Addon> fox_items;
+  std::set<std::string> fox_forced;
+  bool fox_loaded = false;
   int scroll_position = 0;
   plugins::Job active_job = plugins::Job::kRefresh;
   bool busy = false;
@@ -152,6 +157,218 @@ int PlaceText(lv_obj_t *parent, int y, const std::string &text,
   lv_obj_set_pos(label, 28, y);
   lv_obj_update_layout(label);
   return y + lv_obj_get_height(label) + 24;
+}
+
+const fox::Addon *FindAddon(const std::vector<fox::Addon> &items,
+                            const std::string &id) {
+  const auto found = std::find_if(items.begin(), items.end(),
+      [&](const auto &addon) { return addon.id == id; });
+  return found == items.end() ? nullptr : &*found;
+}
+
+bool IsDisabled(const State *state, const fox::Addon &addon) {
+  return addon.risk != fox::Risk::kNone && state->fox_forced.count(addon.id) == 0;
+}
+
+std::string AddonStatus(const State *state, const fox::Addon &addon) {
+  if (IsDisabled(state, addon)) return i18n::Translate("Disabled");
+  if (state->fox_forced.count(addon.id)) return i18n::Translate("Force enabled");
+  return i18n::Translate(addon.builtin ? "Built-in" : "Local package");
+}
+
+// Force enabling is a deliberate three-step review: the experiment notice,
+// the exact reason this add-on was blocked, then the responsibility warning.
+void ShowForceWarnings(State *state, const std::string &id, int step) {
+  if (step == 1) {
+    Sheet(state->screen, i18n::Translate("Warning 1 of 3"),
+          i18n::Translate("Fox add-on compatibility is still experimental. "
+                          "ASRP disabled this add-on by default because it may "
+                          "conflict with ASRP features or behave unpredictably."),
+          [state, id] { ShowForceWarnings(state, id, 2); }, 0, false,
+          SheetPresentation::kStandard,
+          i18n::Translate("Swipe to continue"));
+    return;
+  }
+  const auto *addon = FindAddon(state->fox_items, id);
+  if (!addon) return;
+  if (step == 2) {
+    std::string detail = i18n::Translate(addon->reason.c_str());
+    if (!addon->evidence.empty())
+      detail += "\n\n" + i18n::Format("Detected: %s", addon->evidence.c_str());
+    Sheet(state->screen, i18n::Translate("Warning 2 of 3"), detail,
+          [state, id] { ShowForceWarnings(state, id, 3); }, 0, false,
+          SheetPresentation::kStandard,
+          i18n::Translate("Swipe to continue"));
+    return;
+  }
+  Sheet(state->screen, i18n::Translate("Warning 3 of 3"),
+        i18n::Translate("Force enabling bypasses ASRP's protection. If this "
+                        "add-on crashes ASRP or damages your device, you must "
+                        "recover it yourself. Continue only if you trust this "
+                        "package."),
+        [state, id] {
+          state->fox_forced.insert(id);
+          Render(state);
+        }, 0, false, SheetPresentation::kStandard,
+        i18n::Translate("Swipe to force enable"));
+}
+
+void RenderFoxDetail(State *state) {
+  const auto *addon = FindAddon(state->fox_items, state->detail_id);
+  if (!addon) {
+    state->detail_id.clear();
+    Render(state);
+    return;
+  }
+  const int width = lv_obj_get_width(state->scene.list) - 56;
+  int y = 28;
+  const std::string name = addon->builtin
+      ? i18n::Translate(addon->name.c_str()) : addon->name;
+  const std::string description = addon->builtin
+      ? i18n::Translate(addon->description.c_str()) : addon->description;
+  auto *plate = IconPlate(state->scene.list,
+                          addon->builtin ? LV_SYMBOL_SETTINGS : LV_SYMBOL_DOWNLOAD,
+                          kAccent, IconBackground(), 112);
+  lv_obj_set_pos(plate, 28, y);
+  auto *title = BodyLabel(state->scene.list, name,
+                          &lv_font_montserrat_48, kText, width - 156);
+  lv_obj_set_pos(title, 184, y + 8);
+  lv_obj_update_layout(title);
+  y += std::max(112, static_cast<int>(lv_obj_get_height(title)) + 16) + 36;
+  y = PlaceText(state->scene.list, y,
+                i18n::Translate(addon->builtin ? "OrangeFox built-in add-on"
+                                               : "Legacy add-on package"),
+                &lv_font_montserrat_24, kAccent, width);
+  const bool disabled = IsDisabled(state, *addon);
+  const bool forced = state->fox_forced.count(addon->id) != 0;
+  if (disabled)
+    y = PlaceText(state->scene.list, y, i18n::Translate("Disabled"),
+                  &lv_font_montserrat_24, kRed, width);
+  else if (forced)
+    y = PlaceText(state->scene.list, y, i18n::Translate("Force enabled"),
+                  &lv_font_montserrat_24, kAmber, width);
+  y = PlaceText(state->scene.list, y,
+                i18n::Translate("Fox add-on compatibility is still experimental. "
+                                "Add-ons may behave in unexpected ways."),
+                &lv_font_montserrat_24, kMuted, width);
+  if (!addon->author.empty())
+    y = PlaceText(state->scene.list, y, addon->author,
+                  &lv_font_montserrat_24, kMuted, width);
+  if (!addon->version.empty())
+    y = PlaceText(state->scene.list, y,
+                  i18n::Format("Version %s", addon->version.c_str()),
+                  &lv_font_montserrat_24, kMuted, width);
+  y = PlaceText(state->scene.list, y, description,
+                &lv_font_montserrat_32, kText, width);
+  if (disabled) {
+    y = PlaceText(state->scene.list, y, i18n::Translate(addon->reason.c_str()),
+                  &lv_font_montserrat_32, kAmber, width);
+    if (!addon->evidence.empty())
+      y = PlaceText(state->scene.list, y,
+                    i18n::Format("Detected: %s", addon->evidence.c_str()),
+                    &lv_font_montserrat_20, kDim, width);
+  }
+  y = PlaceText(state->scene.list, y + 8, addon->path,
+                &lv_font_montserrat_20, kDim, width);
+  y += 12;
+  const std::string path = addon->path;
+  const bool builtin = addon->builtin;
+  const std::string id = addon->id;
+  const std::string action_label = i18n::Translate(disabled ? "Force enable"
+                                                            : "Flash add-on");
+  auto *action = StoreButton(state->scene.list, action_label.c_str(),
+      [state, path, builtin, disabled, id] {
+        if (disabled) {
+          ShowForceWarnings(state, id, 1);
+          return;
+        }
+        const std::string notice = builtin
+            ? i18n::Translate("AERA will run this OrangeFox ZIP through the standard installer.")
+            : i18n::Translate("AERA will run this ZIP through the standard installer. "
+                              "Local packages are not verified, so flash only add-ons you trust.");
+        Sheet(state->screen, i18n::Translate("Flash this add-on?"),
+              i18n::Format("%s\n\n%s", path.c_str(), notice.c_str()),
+              [state, path] {
+                SetSelectedPackagePath(path.c_str());
+                state->callback(Action::kInstallPackage, state->context);
+              });
+      }, !disabled);
+  lv_obj_set_pos(action, 28, y);
+  lv_obj_set_size(action, width, kInterfaceSize >= 2 ? 140 : 120);
+  lv_obj_set_style_radius(action, 28, 0);
+  if (state->busy) lv_obj_add_state(action, LV_STATE_DISABLED);
+}
+
+void RenderFoxList(State *state) {
+  const int width = lv_obj_get_width(state->scene.list);
+  const int name_height = lv_font_get_line_height(UiFont(&lv_font_montserrat_36));
+  const int description_height = 2 * lv_font_get_line_height(UiFont(&lv_font_montserrat_24));
+  const int meta_height = lv_font_get_line_height(UiFont(&lv_font_montserrat_20));
+  const int row_height = 64 + name_height + description_height + meta_height + 24;
+  int y = PlaceText(state->scene.list, 0,
+      i18n::Translate("Fox add-on compatibility is still experimental. Add-ons "
+                      "may behave in unexpected ways."),
+      &lv_font_montserrat_24, kAmber, width - 56);
+  if (!state->fox_items.empty()) {
+    y = PlaceText(state->scene.list, y,
+        i18n::Translate("Legacy OrangeFox add-ons: ZIP packages from "
+                        "/sdcard/AERA/plugins/fox and the add-ons bundled in "
+                        "this recovery image."),
+        &lv_font_montserrat_24, kMuted, width - 56);
+    y += 8;
+  }
+  for (const auto &addon : state->fox_items) {
+    const bool disabled = IsDisabled(state, addon);
+    const std::string name = addon.builtin
+        ? i18n::Translate(addon.name.c_str()) : addon.name;
+    const std::string description = disabled
+        ? i18n::Translate(addon.reason.c_str())
+        : addon.builtin ? i18n::Translate(addon.description.c_str())
+                        : addon.description;
+    auto *row = StoreButton(state->scene.list, "", [state, id = addon.id] {
+      ShowDetail(state, id);
+    });
+    lv_obj_set_pos(row, 0, y);
+    lv_obj_set_size(row, width, row_height);
+    lv_obj_set_style_radius(row, 24, 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_30, 0);
+    lv_obj_set_style_transform_scale(row, 256, LV_STATE_PRESSED);
+    auto *plate = IconPlate(row,
+        addon.builtin ? LV_SYMBOL_SETTINGS : LV_SYMBOL_DOWNLOAD,
+        addon.builtin ? kAccent : kAmber, IconBackground(), 84);
+    lv_obj_set_pos(plate, 28, 32);
+    lv_obj_remove_flag(plate, LV_OBJ_FLAG_CLICKABLE);
+    auto *name_label = Label(row, name.c_str(), &lv_font_montserrat_36, kText);
+    lv_obj_set_pos(name_label, 144, 28);
+    SingleLineLabel(name_label, width - 224, &lv_font_montserrat_36);
+    auto *description_label = Label(row, description.c_str(),
+                                    &lv_font_montserrat_24,
+                                    disabled ? kAmber : kMuted);
+    lv_obj_set_pos(description_label, 144, 36 + name_height);
+    lv_label_set_long_mode(description_label, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_size(description_label, width - 224, description_height);
+    const std::string status = AddonStatus(state, addon);
+    const std::string metadata = addon.version.empty() ? status
+        : addon.version + "  /  " + status;
+    const lv_color_t status_color = disabled ? kRed
+        : state->fox_forced.count(addon.id) ? kAmber
+        : addon.builtin ? kGreen : kAmber;
+    auto *meta = Label(row, metadata.c_str(), &lv_font_montserrat_20,
+                       status_color);
+    lv_obj_set_pos(meta, 144, 48 + name_height + description_height);
+    SingleLineLabel(meta, width - 224, &lv_font_montserrat_20);
+    auto *arrow = Label(row, LV_SYMBOL_RIGHT, &lv_font_montserrat_24, kMuted);
+    lv_obj_align(arrow, LV_ALIGN_RIGHT_MID, -28, 0);
+    if (state->busy) lv_obj_add_state(row, LV_STATE_DISABLED);
+    y += row_height + 12;
+  }
+  if (state->fox_items.empty())
+    PlaceText(state->scene.list, y + 24,
+        i18n::Translate("No Fox add-ons found. Put ZIP packages in "
+                        "/sdcard/AERA/plugins/fox. Built-in OrangeFox add-ons "
+                        "appear when this recovery image ships them in /FFiles "
+                        "or /sdcard/Fox/FoxFiles."),
+        &lv_font_montserrat_32, kMuted, width - 56);
 }
 
 void Detail(State *state, const std::vector<plugins::Plugin> &catalog,
@@ -370,11 +587,12 @@ void Render(State *state) {
   const auto installed = plugins::Installed();
   const bool detail = !state->detail_id.empty();
   const bool updates_view = !detail && state->view == View::kUpdates;
+  const bool fox_view = !detail && state->view == View::kFoxAddons;
   const auto hidden = [](lv_obj_t *object, bool value) {
     if (value) lv_obj_add_flag(object, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_remove_flag(object, LV_OBJ_FLAG_HIDDEN);
   };
-  for (int i = 0; i < 3; ++i) {
+  for (int i = 0; i < 4; ++i) {
     hidden(state->tabs[i], detail);
     lv_obj_set_style_bg_color(state->tabs[i], kMainPanel, 0);
     lv_obj_set_style_bg_color(state->tabs[i], kMainPanel, LV_STATE_PRESSED);
@@ -383,13 +601,13 @@ void Render(State *state) {
     lv_obj_set_style_text_color(lv_obj_get_child(state->tabs[i], 0),
         static_cast<int>(state->view) == i ? kAccent : kMuted, 0);
   }
-  hidden(state->filters, detail || updates_view);
+  hidden(state->filters, detail || updates_view || fox_view);
   hidden(state->automatic, !updates_view);
   hidden(state->update_all, !updates_view);
   hidden(state->back, !detail);
   hidden(state->scene.refresh, detail);
   hidden(state->clear_search, state->query.empty());
-  hidden(state->search, detail || updates_view);
+  hidden(state->search, detail || updates_view || fox_view);
   lv_obj_set_style_border_width(state->search, state->query.empty() ? 0 : 2, 0);
   lv_obj_set_style_border_color(state->search, kAccent, 0);
   const int toolbar = Landscape(state->screen) ? 310 : 430;
@@ -398,7 +616,19 @@ void Render(State *state) {
   ResizeList(state, detail);
   lv_obj_clean(state->scene.list);
   lv_obj_scroll_to_y(state->scene.list, 0, LV_ANIM_OFF);
-  if (detail) { Detail(state, catalog, installed); return; }
+  if (detail) {
+    if (state->view == View::kFoxAddons) RenderFoxDetail(state);
+    else Detail(state, catalog, installed);
+    return;
+  }
+  if (fox_view) {
+    if (!state->fox_loaded) {
+      state->fox_items = fox::Scan();
+      state->fox_loaded = true;
+    }
+    RenderFoxList(state);
+    return;
+  }
   const int half_width = (lv_obj_get_width(state->filters) - 24) / 2;
   const int category_width = state->query.empty() ? lv_obj_get_width(state->filters) : half_width;
   lv_obj_set_width(state->category, category_width);
@@ -512,20 +742,30 @@ PluginScene BuildPluginScene(lv_obj_t *screen, ActionCallback callback, void *co
   lv_obj_update_layout(screen);
   const int width = lv_obj_get_width(screen) - 160;
   const int top = Landscape(screen) ? 310 : 430;
-  const int tab_width = (width - 144) / 3;
-  for (int i = 0; i < 3; ++i) {
-    state->tabs[i] = StoreButton(screen, i == 0 ? "Store" : i == 1 ? "Installed" : "Updates", [state, i] {
+  const int tab_width = (width - 160) / 4;
+  const char *const tabs[4] = {"Store", "Installed", "Updates", "Fox Add-ons"};
+  for (int i = 0; i < 4; ++i) {
+    state->tabs[i] = StoreButton(screen, tabs[i], [state, i] {
       if (state->busy) return;
       state->view = static_cast<View>(i);
       state->category_index = 0;
       state->query.clear();
+      state->detail_id.clear();
+      if (state->view == View::kFoxAddons) state->fox_loaded = false;
       Render(state);
     });
     lv_obj_set_pos(state->tabs[i], 80 + i * (tab_width + 16), top);
     lv_obj_set_size(state->tabs[i], tab_width, 110);
     lv_obj_set_style_radius(state->tabs[i], 28, 0);
   }
-  state->scene.refresh = StoreButton(screen, LV_SYMBOL_REFRESH, [state] { Request(state, plugins::Job::kRefresh); });
+  state->scene.refresh = StoreButton(screen, LV_SYMBOL_REFRESH, [state] {
+    if (state->view == View::kFoxAddons) {
+      state->fox_loaded = false;
+      Render(state);
+      return;
+    }
+    Request(state, plugins::Job::kRefresh);
+  });
   lv_obj_set_pos(state->scene.refresh, 80 + width - 96, top);
   lv_obj_set_size(state->scene.refresh, 96, 110);
   state->back = StoreButton(screen, LV_SYMBOL_LEFT, [state] { NavigatePluginBack(state->scene); });

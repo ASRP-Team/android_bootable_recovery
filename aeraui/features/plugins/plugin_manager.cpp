@@ -116,6 +116,9 @@ int CompareVersions(const std::string &left, const std::string &right) {
 bool SafeId(const std::string &id) {
   if (id.empty() || id.size() > 64 || id.front() == '.' || id.back() == '.')
     return false;
+  // "fox" is reserved for the Fox add-on directory, so an AERA plugin can
+  // never be scanned from, installed into, or removed from it.
+  if (id == "fox") return false;
   return std::all_of(id.begin(), id.end(), [](unsigned char c) {
     return std::islower(c) || std::isdigit(c) || c == '-' || c == '.';
   });
