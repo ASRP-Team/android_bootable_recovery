@@ -58,6 +58,7 @@
 #include "../aeraui/features/update/payload_full_flash.hpp"
 #include "../aeraui/features/update/payload_otaripper.hpp"
 #include "../aeraui/features/root/root_manager.hpp"
+#include <aeraui/backend.hpp>
 #include "third_party/mdns/mdns.h"
 
 #ifndef AERA_PC_PRIVATE_DIRECTORY
@@ -138,6 +139,11 @@ Clock::time_point g_reboot_at;
 struct Download { std::string path, owner; Clock::time_point expires; };
 std::map<std::string, Download> g_downloads;
 std::set<std::string> g_cleaned_transfer_roots;
+
+bool ParseRootProvider(const std::string &id, aeraui::root::Provider *provider);
+bool RootKernelPatch(aeraui::root::Provider provider);
+bool RootProviderUsesSuperkey(aeraui::root::Provider provider);
+std::string RootPartition(aeraui::root::Provider provider);
 
 std::string Hex(const unsigned char *data, size_t size) {
   constexpr char digits[] = "0123456789abcdef";
@@ -1188,6 +1194,80 @@ void QueueNetworkStorage(SSL *tls, const Json::Value &body, const std::string &o
   Reply(tls, 200, JsonText(result));
 }
 
+Json::Value SshState() {
+  Json::Value result(Json::objectValue);
+  result["supported"] = aeraui::RecoverySshSupported();
+  result["running"] = aeraui::RecoverySshRunning();
+  result["port"] = aeraui::RecoverySshPort();
+  result["address"] = aeraui::RecoverySshAddress();
+  result["password"] = aeraui::RecoverySshPassword();
+  result["keys"] = aeraui::RecoverySshAuthorizedKeys();
+  result["key_count"] = aeraui::RecoverySshKeyCount();
+  const std::string address = result["address"].asString();
+  if (!address.empty())
+    result["command"] = "ssh -p " + std::to_string(result["port"].asInt()) + " root@" + address;
+  return result;
+}
+
+bool ValidSshPort(int port) { return port > 0 && port <= 65535; }
+
+void SshCommand(SSL *tls, const Json::Value &body) {
+  if (!aeraui::RecoverySshSupported()) {
+    Error(tls, 409, "SSH is not available in this build."); return;
+  }
+  const std::string action = body.get("action", "status").asString();
+  if (action == "status" || action == "inspect") {
+    Reply(tls, 200, JsonText(SshState())); return;
+  }
+  if (action == "start") {
+    int port = aeraui::RecoverySshPort();
+    if (body.isMember("port")) {
+      if (!body["port"].isInt() || !ValidSshPort(body["port"].asInt())) {
+        Error(tls, 400, "Select an SSH port between 1 and 65535."); return;
+      }
+      port = body["port"].asInt();
+      if (!aeraui::RecoverySshSetPort(port)) {
+        Error(tls, 409, "Could not save the SSH port."); return;
+      }
+    }
+    if (!aeraui::RecoverySshStart(port)) {
+      Error(tls, 503, "Could not start the SSH server."); return;
+    }
+  } else if (action == "stop") {
+    aeraui::RecoverySshStop();
+  } else if (action == "password") {
+    if (body.isMember("password") && !body["password"].isString()) {
+      Error(tls, 400, "Invalid SSH password."); return;
+    }
+    const std::string password = body.get("password", "").asString();
+    if (password.size() > 256 || password.find('\0') != std::string::npos) {
+      Error(tls, 400, "SSH passwords must be 256 bytes or fewer."); return;
+    }
+    if (!aeraui::RecoverySshSetPassword(password)) {
+      Error(tls, 409, "Could not update the SSH password."); return;
+    }
+  } else if (action == "port") {
+    if (!body["port"].isInt() || !ValidSshPort(body["port"].asInt())) {
+      Error(tls, 400, "Select an SSH port between 1 and 65535."); return;
+    }
+    if (!aeraui::RecoverySshSetPort(body["port"].asInt())) {
+      Error(tls, 409, "Could not save the SSH port."); return;
+    }
+  } else if (action == "keys") {
+    if (!body["keys"].isString()) { Error(tls, 400, "Provide authorized keys."); return; }
+    std::string keys = body["keys"].asString();
+    if (keys.size() > 32768) { Error(tls, 400, "Authorized keys are too large."); return; }
+    std::size_t newline = 0;
+    while ((newline = keys.find("\r\n")) != std::string::npos) keys.replace(newline, 2, "\n");
+    if (!aeraui::RecoverySshSetAuthorizedKeys(keys)) {
+      Error(tls, 409, "Could not save authorized keys."); return;
+    }
+  } else {
+    Error(tls, 400, "Select an SSH operation."); return;
+  }
+  Reply(tls, 200, JsonText(SshState()));
+}
+
 void SendDownload(SSL *tls, int fd, uint64_t bytes, const std::string &name) {
   const auto header = "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: " +
       std::to_string(bytes) + "\r\nContent-Disposition: attachment; filename=\"" + name +
@@ -1715,6 +1795,33 @@ void FetchTransfer(Transfer transfer, const std::string &url, unsigned generatio
     if (!failure.empty()) RemoveTransferFiles(transfer);
   }
 }
+// The browser sends the same ProviderId values the recovery UI uses, plus the
+// short aliases kept for older clients. Family and SuperKey rules mirror the
+// recovery Root Manager without depending on its implementation here.
+bool ParseRootProvider(const std::string &id, aeraui::root::Provider *provider) {
+  if (id == "kernelsu") *provider = aeraui::root::Provider::kKernelSU;
+  else if (id == "kernelsu-next" || id == "next")
+    *provider = aeraui::root::Provider::kKernelSUNext;
+  else if (id == "sukisu-ultra" || id == "sukisu")
+    *provider = aeraui::root::Provider::kSukiSU;
+  else if (id == "bakasu") *provider = aeraui::root::Provider::kBakaSU;
+  else if (id == "finasu") *provider = aeraui::root::Provider::kFinaSU;
+  else if (id == "yukisu") *provider = aeraui::root::Provider::kYukiSU;
+  else if (id == "apatch") *provider = aeraui::root::Provider::kAPatch;
+  else if (id == "folkpatch") *provider = aeraui::root::Provider::kFolkPatch;
+  else return false;
+  return true;
+}
+bool RootKernelPatch(aeraui::root::Provider provider) {
+  return provider == aeraui::root::Provider::kAPatch ||
+         provider == aeraui::root::Provider::kFolkPatch;
+}
+bool RootProviderUsesSuperkey(aeraui::root::Provider provider) {
+  return provider == aeraui::root::Provider::kYukiSU || RootKernelPatch(provider);
+}
+std::string RootPartition(aeraui::root::Provider provider) {
+  return RootKernelPatch(provider) ? "boot" : "init_boot";
+}
 void Upload(SSL *tls, const HttpRequest &request, const std::string &owner, unsigned generation) {
   Transfer transfer;
   {
@@ -1987,9 +2094,11 @@ void Handle(SSL *tls, unsigned generation) {
   }
   Json::Value body;
   if (request.method != "POST" || !ReadJsonBody(tls, request, &body,
-        request.path == "/api/nas" ? 98304 : request.path == "/api/backups" ? 65536 : kMaximumJson)) {
+        request.path == "/api/nas" ? 98304 : request.path == "/api/backups" ? 65536 :
+        request.path == "/api/ssh" ? 65536 : kMaximumJson)) {
     Error(tls, 400, "Invalid command."); return;
   }
+  if (request.path == "/api/ssh") { SshCommand(tls, body); return; }
   if (request.path == "/api/prepare") { PrepareTransfer(tls, body, owner); return; }
   if (request.path == "/api/download") { PrepareTransfer(tls, body, owner, true); return; }
   if (request.path == "/api/backups") { QueueBackup(tls, body, owner); return; }
@@ -2045,18 +2154,30 @@ void Handle(SSL *tls, unsigned generation) {
         const std::string action = body.get("action", "").asString();
         const std::string provider = body.get("provider", "").asString();
         const std::string slot = body.get("slot", "").asString();
+        const std::string superkey = body.get("superkey", "").asString();
+        aeraui::root::Provider parsed = aeraui::root::Provider::kKernelSU;
         if ((action != "inspect" && action != "refresh" && action != "patch" && action != "rollback" && action != "manager") ||
-            (provider != "kernelsu" && provider != "next" && provider != "sukisu") || (slot != "a" && slot != "b")) {
+            !ParseRootProvider(provider, &parsed) ||
+            (slot != "a" && slot != "b")) {
           Error(tls, 400, "Select a root operation, provider and slot."); return;
         }
+        if (superkey.size() > 64) {
+          Error(tls, 400, "SuperKey must be at most 64 characters."); return;
+        }
+        if (RootKernelPatch(parsed) && action == "inspect") {
+          Error(tls, 400, "Target inspection is available for the KernelSU family only; KernelPatch managers patch boot."); return;
+        }
         if (!g_platform["root_available"].asBool() || g_platform["locked"].asBool()) {
-          Error(tls, 409, "Root patching requires supported init_boot partitions and unlocked internal storage."); return;
+          Error(tls, 409, "Root patching requires supported boot partitions and unlocked internal storage."); return;
         }
         RemoveTransferFiles(g_transfer); g_transfer = Transfer{};
         g_transfer.id = RandomToken();
         if (g_transfer.id.empty()) { Error(tls, 500, "Could not create root operation."); return; }
         g_transfer.owner = owner; g_transfer.computer = g_trusted.get(owner, "Computer").asString();
-        g_transfer.name = "Root Manager / " + action + " / init_boot_" + slot;
+        const std::string partition = RootPartition(parsed);
+        g_transfer.name = "Root Manager / " + action;
+        if (action == "patch" || action == "rollback")
+          g_transfer.name += " / " + partition + "_" + slot;
         g_transfer.phase = "queued";
         g_transfer.detail = "Waiting for recovery to start the root operation.";
         g_transfer.request.job = aeraui::Job::kRootOperation;
@@ -2065,6 +2186,8 @@ void Handle(SSL *tls, unsigned generation) {
         g_transfer.request.show_on_device = false;
         g_transfer.request.root_action = action; g_transfer.request.root_provider = provider;
         g_transfer.request.root_slot = slot;
+        if (RootProviderUsesSuperkey(parsed))
+          g_transfer.request.root_superkey = superkey;
         g_prompt = Json::Value(Json::objectValue);
         g_presentation = Json::Value(Json::objectValue); result = TransferStatus();
       }
@@ -2628,9 +2751,14 @@ void RefreshPlatformInfo() {
   info["battery"] = Trim(ReadFile("/sys/class/power_supply/battery/capacity", 64));
   info["battery_status"] = Trim(ReadFile("/sys/class/power_supply/battery/status", 64));
   info["root_enabled"] = aeraui::root::Enabled();
-  info["root_available"] = aeraui::root::Enabled() && access("/sbin/ksud", X_OK) == 0 && access("/sbin/magiskboot", X_OK) == 0 &&
+  const bool ksu_ready = access("/sbin/ksud", X_OK) == 0 && access("/sbin/magiskboot", X_OK) == 0 &&
       (access("/dev/block/by-name/init_boot_a", R_OK | W_OK) == 0 ||
        access("/dev/block/by-name/init_boot_b", R_OK | W_OK) == 0);
+  const bool kptools_ready = access("/system/bin/kptools", X_OK) == 0 ||
+      access("/system/xbin/kptools", X_OK) == 0 || access("/sbin/kptools", X_OK) == 0;
+  const bool boot_ready = access("/dev/block/by-name/boot_a", R_OK | W_OK) == 0 ||
+      access("/dev/block/by-name/boot_b", R_OK | W_OK) == 0;
+  info["root_available"] = aeraui::root::Enabled() && (ksu_ready || (kptools_ready && boot_ready));
 #ifdef AERA_PC_HOST_TEST
   info["root_available"] = aeraui::root::Enabled();  // The host fixture only simulates root jobs.
 #endif

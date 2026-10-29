@@ -123,6 +123,7 @@ struct JobRequest {
   std::string root_action;
   std::string root_provider;
   std::string root_slot;
+  std::string root_superkey;
   std::string backup_action, backup_kind, backup_source, backup_method;
   std::string backup_storage, backup_snapshot;
   int backup_user = 0;
@@ -315,6 +316,14 @@ std::string RecoverySshAuthorizedKeys();
 bool RecoverySshSetAuthorizedKeys(const std::string& keys);
 int RecoverySshKeyCount();
 std::string RecoverySshAddress();
+
+bool RecoveryFtpSupported();
+bool RecoveryFtpRunning();
+bool RecoveryFtpStart(int port);
+void RecoveryFtpStop();
+int RecoveryFtpPort();
+bool RecoveryFtpSetPort(int port);
+std::string RecoveryFtpAddress();
 enum class Preference {
   kClock24,
   kHiddenFiles,

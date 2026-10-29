@@ -105,13 +105,14 @@ function showTab(tab) {
   if (workspace.tab !== tab && ['completed','failed','cancelled'].includes(state.job?.phase)) clearActivity();
   workspace.tab = tab;
   $('workspace').firstElementChild.hidden = tab !== 'install';
-  for (const name of ['root','files','device','backups']) $(name+'Panel').hidden = tab !== name;
+  for (const name of ['root','files','device','backups','ssh']) $(name+'Panel').hidden = tab !== name;
   for (const button of $('workspaceTabs').children) {
     const selected = button.dataset.tab === tab;
     button.classList.toggle('selected',selected); button.setAttribute('aria-pressed',String(selected));
   }
   if (tab === 'files' && !workspace.folder && $('fileStorage').value) loadFolder($('fileStorage').value);
   if (tab === 'device' && state.connected) loadFlashReports();
+  if (tab === 'ssh' && state.connected) loadSsh();
   activityVisibility();
 }
 function activityVisibility() {
@@ -155,7 +156,13 @@ controls = function() {
   const blocked = !state.connected || activeJob() || workspace.batchDownload || !!state.info?.busy;
   for (const id of ['rootInspect','rootRefresh','rootPatch','rootRollback','rootManager'])
     $(id).disabled = blocked || !state.info?.root_available || !!state.info?.locked || !$('rootSlot').value;
+  if(rootFamilyKey()==='kernelpatch') $('rootInspect').disabled=true;
   for (const button of document.querySelectorAll('[data-reboot]')) button.disabled = blocked;
+  const sshBlocked = blocked || !!(workspace.ssh && !workspace.ssh.supported);
+  for (const id of ['sshToggle','sshGenerate','sshSavePassword','sshSavePort','sshKeyUpload','sshKeysSave'])
+    $(id).disabled = sshBlocked;
+  for (const id of ['sshPort','sshPassword','sshKeys']) $(id).disabled = sshBlocked;
+  $('sshRefresh').disabled = !state.connected;
   for (const id of ['fileUpload','folderNew','folderUp','folderRefresh','fileRename','fileDelete','fileDownload','fileInstall'])
     $(id).disabled = blocked || workspace.loading || !workspace.folder || (id.startsWith('file') && id !== 'fileUpload' && !workspace.selected);
   $('fileStorage').disabled = blocked || workspace.loading;
@@ -179,6 +186,34 @@ controls = function() {
   renderInstallSource();
   activityVisibility();
 };
+// Two-level root selection: the family is the patching mechanism, the
+// distribution is the concrete manager inside it. KernelPatch managers patch
+// the kernel in boot through kptools; the KernelSU family patches init_boot.
+const rootFamilies={
+  kernelsu:{providers:[
+    {id:'kernelsu',name:'KernelSU'},
+    {id:'kernelsu-next',name:'KernelSU Next'},
+    {id:'sukisu-ultra',name:'SukiSU Ultra'},
+    {id:'bakasu',name:'BakaSU'},
+    {id:'finasu',name:'FinaSU'},
+    {id:'yukisu',name:'YukiSU'}]},
+  kernelpatch:{providers:[
+    {id:'apatch',name:'APatch'},
+    {id:'folkpatch',name:'FolkPatch'}]}
+};
+const rootSuperkeyProviders=['yukisu','apatch','folkpatch'];
+function rootFamilyKey(){const value=$('rootFamily').value;return rootFamilies[value]?value:'kernelsu';}
+function rootSuperkeyUsed(provider=$('rootProvider').value){return rootSuperkeyProviders.includes(provider);}
+function syncRootProviders(){
+  const family=rootFamilies[rootFamilyKey()];
+  const select=$('rootProvider'),previous=select.value;
+  select.replaceChildren();
+  for(const provider of family.providers) select.add(new Option(provider.name,provider.id));
+  if(family.providers.some(provider=>provider.id===previous)) select.value=previous;
+  $('rootSuperkeyField').hidden=!rootSuperkeyUsed();
+  $('rootTarget').textContent=rootPartition()+(($('rootSlot').value)?'_'+$('rootSlot').value:'');
+}
+const rootPartition=()=>rootFamilyKey()==='kernelpatch'?'boot':'init_boot';
 const originalUpdateInfo = updateInfo;
 updateInfo = function(info) {
   originalUpdateInfo(info);
@@ -195,10 +230,10 @@ updateInfo = function(info) {
     $('rootSlot').value = workspace.slotChosen && selected ? selected : active;
     $('rootSlot').dataset.signature = slotSignature;
   }
-  $('rootTarget').textContent = $('rootSlot').value ? 'init_boot_'+$('rootSlot').value : 'init_boot';
+  $('rootTarget').textContent = rootPartition() + ($('rootSlot').value ? '_'+$('rootSlot').value : '');
   $('rootUnavailable').hidden = !!info.root_available && !info.locked;
   $('rootUnavailable').textContent = info.locked ? 'Unlock internal storage for verified rollback backups.' :
-    'This device does not expose the init_boot / KernelSU patching backend. Root is unavailable; other tools remain usable.';
+    'This device does not expose the init_boot / boot patching backend. Root is unavailable; other tools remain usable.';
   const memory = /MemAvailable:\s+(\d+) kB/.exec(info.memory||'');
   const total = /MemTotal:\s+(\d+) kB/.exec(info.memory||'');
   const uptime = Math.floor(parseFloat(info.uptime||'0') / 60);
@@ -253,16 +288,16 @@ function renderRootInspection(job) {
     const detail=document.createElement('div');detail.className='legacy-result';
     detail.textContent=job.detail||'Inspection finished.';panel.append(title,detail);return;
   }
-  title.textContent=!result.inspected?'Inspection incomplete':result.patched?'Root patch detected':'No KernelSU patch detected';
+  title.textContent=!result.inspected?'Inspection incomplete':result.patched?'Root patch detected':'No root patch detected';
   title.classList.toggle('verified',!!result.verified);panel.append(title);
   const details=document.createElement('dl');details.className='review';
   const active=(state.info?.slot||state.info?.boot_slot||'').toLowerCase().replace(/^_/,'');
   const rows=[['Target',result.target+(active?` / ${job.root_slot===active?'active':'inactive'} slot`:'')],
     ['Kernel',result.kernel],
-    ['Root',!result.inspected?'Unknown':result.patched?(result.provider||'KernelSU-compatible'):'No KernelSU LKM detected'],
+    ['Root',!result.inspected?'Unknown':result.patched?(result.provider||'KernelSU-compatible'):'No root patch detected'],
     ['Version',!result.inspected?'Unknown':result.patched?(result.version||'Unknown / no AERA receipt'):'Not applicable'],
     ['Verification',!result.inspected?'Could not verify':result.verified?'Verified AERA patch':
-      result.patched?'Detected / no AERA verification':'No KernelSU LKM detected']];
+      result.patched?'Detected / no AERA verification':'No root patch detected']];
   for(const [label,value] of rows){
     const row=document.createElement('div'),term=document.createElement('dt'),detail=document.createElement('dd');
     term.textContent=label;detail.textContent=value||'Unknown';row.append(term,detail);details.append(row);
@@ -271,7 +306,9 @@ function renderRootInspection(job) {
   if(!result.inspected){const detail=document.createElement('p');detail.className='context-note';detail.textContent=result.detail;panel.append(detail);}
   const offline=document.createElement('div');offline.className='offline-module';offline.textContent='Available offline module';
   const module=document.createElement('strong');
-  const providers={kernelsu:'KernelSU',next:'KernelSU Next',sukisu:'SukiSU Ultra'};
+  const providers={kernelsu:'KernelSU','kernelsu-next':'KernelSU Next',next:'KernelSU Next',
+    'sukisu-ultra':'SukiSU Ultra',sukisu:'SukiSU Ultra',bakasu:'BakaSU',finasu:'FinaSU',
+    yukisu:'YukiSU',apatch:'APatch',folkpatch:'FolkPatch'};
   module.textContent=result.offline_available?`${providers[result.offline_provider]||result.offline_provider} ${result.offline_version||'/ version unknown'}`:
     'No matching module / check latest release';offline.append(module);panel.append(offline);
 }
@@ -493,14 +530,25 @@ async function runAction() {
 $('actionRun').onclick=runAction;$('actionCancel').onclick=()=>$('actionConfirm').close();
 $('actionName').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();runAction()}};
 for(const button of $('workspaceTabs').children) button.onclick=()=>showTab(button.dataset.tab);
-$('rootSlot').onchange=()=>{ workspace.slotChosen=true;$('rootTarget').textContent='init_boot_'+$('rootSlot').value;renderRootInspection(state.job||{});controls(); };
+$('rootSlot').onchange=()=>{ workspace.slotChosen=true;$('rootTarget').textContent=rootPartition()+'_'+$('rootSlot').value;renderRootInspection(state.job||{});controls(); };
+$('rootFamily').onchange=()=>{ syncRootProviders();controls(); };
+$('rootProvider').onchange=()=>{
+  $('rootSuperkeyField').hidden=!rootSuperkeyUsed();
+  if(!rootSuperkeyUsed()) $('rootSuperkey').value='';
+  $('rootTarget').textContent=rootPartition()+(($('rootSlot').value)?'_'+$('rootSlot').value:'');
+  controls();
+};
+syncRootProviders();
 async function rootOperation(action) {
-  const slot=$('rootSlot').value,provider=$('rootProvider').value;
-  const run=async()=>{notice('');updateJob(await api('root',{action,slot,provider,confirm:true}));};
+  const slot=$('rootSlot').value,provider=$('rootProvider').value,partition=rootPartition();
+  const superkey=rootSuperkeyUsed()?$('rootSuperkey').value.trim():'';
+  const run=async()=>{notice('');updateJob(await api('root',{action,slot,provider,superkey,confirm:true}));};
   if(action==='inspect'||action==='refresh') {try{await run()}catch(error){notice(error.message)}return}
   const providerName=$('rootProvider').selectedOptions[0].textContent;
-  const text=action==='patch'?`${providerName}\nTarget: init_boot_${slot}\n\nThe target boot kernel must match an exact module. AERA saves a verified full rollback image before writing. This does not switch slots or reboot.`:
-    action==='rollback'?`Restore the latest verified AERA backup to init_boot_${slot}. This overwrites the selected partition.`:
+  const kernelpatch=rootFamilyKey()==='kernelpatch';
+  const superkeyNote=rootSuperkeyUsed()?`\nSuperKey: ${superkey?'custom key will be embedded':'none (official manager default)'}`:'';
+  const text=action==='patch'?(kernelpatch?`${providerName}\nTarget: ${partition}_${slot}\n\nAERA saves a verified full rollback image, patches ${partition} with kptools using the kpimg on /sdcard/kpimg, verifies it, and only then writes the selected slot. This does not switch slots or reboot.${superkeyNote}`:`${providerName}\nTarget: ${partition}_${slot}\n\nThe target boot kernel must match an exact module. AERA saves a verified full rollback image before writing. This does not switch slots or reboot.${superkeyNote}`):
+    action==='rollback'?`Restore the latest verified AERA backup to ${partition}_${slot}. This overwrites the selected partition.`:
     `${providerName}\nDownload and stage the manager APK for installation when Android starts. This does not patch a partition.`;
   confirmation(action==='patch'?'Patch selected slot?':action==='rollback'?'Restore root backup?':'Install manager APK?',text,run);
 }
@@ -905,4 +953,63 @@ async function loadReports(manual=false) {
 }
 async function loadFlashReports(){await Promise.all([loadReports(),loadReports(true)]);}
 $('deviceRefresh').onclick=async()=>{try{await refresh();await loadFlashReports()}catch(error){notice(error.message)}};
+async function loadSsh() {
+  if(!state.connected)return;
+  $('sshStatus').textContent='Loading...';
+  try{
+    const info=await api('ssh',{action:'status'});
+    renderSsh(info);
+  }catch(error){$('sshStatus').textContent='Unavailable';notice(error.message)}
+}
+function renderSsh(info){
+  workspace.ssh=info;
+  const supported=!!info.supported,running=!!info.running;
+  $('sshUnavailable').hidden=supported;
+  $('sshStatus').textContent=!(supported)?'Unavailable':running?'Running':'Stopped';
+  $('sshPort').value=info.port||'';
+  $('sshPassword').value=info.password||'';
+  $('sshKeys').value=info.keys||'';
+  $('sshKeyCount').textContent=(info.key_count||0)+' key'+((info.key_count||0)===1?'':'s');
+  $('sshToggle').textContent=running?'Stop SSH':'Start SSH';
+  $('sshToggle').classList.toggle('danger',running);
+  $('sshConnection').textContent=!supported?'SSH is not available in this build.':
+    running?(info.command||('SSH is running on port '+info.port+'. Waiting for a Wi-Fi address.')):'SSH server is stopped.';
+  controls();
+}
+function sshPortValue(){
+  const port=Number($('sshPort').value);
+  return Number.isInteger(port)&&port>0&&port<=65535?port:null;
+}
+async function sshRequest(body,success){
+  try{
+    renderSsh(await api('ssh',body));
+    if(success)notice(success,'success');
+  }catch(error){notice(error.message)}
+  finally{controls()}
+}
+$('sshRefresh').onclick=()=>loadSsh();
+$('sshToggle').onclick=()=>{
+  if(workspace.ssh?.running){sshRequest({action:'stop'},'SSH server stopped.');return;}
+  const port=sshPortValue();
+  if(!port){notice('Enter an SSH port between 1 and 65535.');return;}
+  sshRequest({action:'start',port},'SSH server started.');
+};
+$('sshSavePort').onclick=()=>{
+  const port=sshPortValue();
+  if(!port){notice('Enter an SSH port between 1 and 65535.');return;}
+  sshRequest({action:'port',port},'SSH port saved.');
+};
+$('sshSavePassword').onclick=()=>sshRequest({action:'password',password:$('sshPassword').value},'SSH password saved.');
+$('sshGenerate').onclick=()=>sshRequest({action:'password',password:''},'New SSH password generated.');
+$('sshKeysSave').onclick=()=>sshRequest({action:'keys',keys:$('sshKeys').value},'Authorized keys saved.');
+$('sshKeyUpload').onclick=()=>$('sshKeyFile').click();
+$('sshKeyFile').onchange=async()=>{
+  const file=$('sshKeyFile').files?.[0];if(!file)return;
+  try{
+    const text=(await file.text()).trim();
+    if(text){const current=$('sshKeys').value.trim();$('sshKeys').value=(current?current+'\n':'')+text+'\n';}
+    notice(text?'Key file loaded. Save keys to apply.':'The selected key file is empty.');
+  }catch(error){notice('Could not read the key file.')}
+  finally{$('sshKeyFile').value=''}
+};
 showTab('install');if(state.info)updateInfo(state.info);controls();

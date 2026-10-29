@@ -28,6 +28,12 @@ enum class Provider {
   kAPatch,
   kFolkPatch,
 };
+// Coarse grouping used by the recovery and PC front ends. The first choice is
+// the patching mechanism; the second is the concrete distribution inside it.
+enum class Family {
+  kKernelSU,     // KernelSU and forks: patch init_boot through ksud.
+  kKernelPatch,  // APatch and FolkPatch: patch the kernel in boot via kptools.
+};
 enum class Job {
   kRefreshRelease,
   kPatch,
@@ -44,8 +50,10 @@ enum class Job {
 
 struct Status {
   bool ksud_available = false;
+  bool kptools_available = false;
   bool kmi_supported = false;
   bool init_boot_available = false;
+  bool boot_available = false;
   bool storage_ready = false;
   std::string kernel_release;
   std::string kmi;
@@ -111,8 +119,8 @@ struct Request {
   // boot on GKI devices; the KSU family normally targets init_boot.
   std::string partition = "init_boot";
   std::string module_id;
-  // YukiSU only: SuperKey embedded into the patched LKM. Empty means the
-  // official manager signature is the only accepted authenticator.
+  // YukiSU (LKM) and KernelPatch-based managers (APatch/FolkPatch): SuperKey
+  // embedded into the patched image. Empty keeps the store's default key.
   std::string superkey;
   bool verify_target_kernel = false;
 };
@@ -142,5 +150,9 @@ bool PatchUpdateAvailable(const PatchInfo &patch, Provider provider,
                           const Release &release);
 bool Run(const Request &request, Progress &progress);
 const char *ProviderName(Provider provider);
+Family FamilyFor(Provider provider);
+const char *FamilyName(Family family);
+std::vector<Provider> FamilyProviders(Family family);
+bool ProviderUsesSuperkey(Provider provider);
 
 }  // namespace aeraui::root

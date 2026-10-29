@@ -87,6 +87,7 @@
 #include "wlan.hpp"
 #include "aera_wifi_dispatcher.hpp"
 #include "aera_ssh/sshd.hpp"
+#include "aera_ftp/ftp.hpp"
 #endif
 
 extern "C" int aeraui_install_package(const char *path) {
@@ -1808,10 +1809,24 @@ static int RecoveryRunJobImpl(const JobRequest &request) {
     if (request.root_slot != "a" && request.root_slot != "b") return 1;
     operation.slot = request.root_slot;
     operation.verify_target_kernel = true;
-    if (request.root_provider == "kernelsu") operation.provider = root::Provider::kKernelSU;
-    else if (request.root_provider == "next") operation.provider = root::Provider::kKernelSUNext;
-    else if (request.root_provider == "sukisu") operation.provider = root::Provider::kSukiSU;
+    const std::string &id = request.root_provider;
+    if (id == "kernelsu") operation.provider = root::Provider::kKernelSU;
+    else if (id == "kernelsu-next" || id == "next")
+      operation.provider = root::Provider::kKernelSUNext;
+    else if (id == "sukisu-ultra" || id == "sukisu")
+      operation.provider = root::Provider::kSukiSU;
+    else if (id == "bakasu") operation.provider = root::Provider::kBakaSU;
+    else if (id == "finasu") operation.provider = root::Provider::kFinaSU;
+    else if (id == "yukisu") operation.provider = root::Provider::kYukiSU;
+    else if (id == "apatch") operation.provider = root::Provider::kAPatch;
+    else if (id == "folkpatch") operation.provider = root::Provider::kFolkPatch;
     else return 1;
+    // KernelPatch modifies the kernel, which lives in boot on GKI devices;
+    // the KSU family normally patches init_boot.
+    operation.partition =
+        root::FamilyFor(operation.provider) == root::Family::kKernelPatch
+            ? "boot" : "init_boot";
+    operation.superkey = request.root_superkey;
     if (request.root_action == "inspect") operation.job = root::Job::kInspectTarget;
     else if (request.root_action == "refresh") operation.job = root::Job::kRefreshRelease;
     else if (request.root_action == "patch") operation.job = root::Job::kPatch;
@@ -2338,6 +2353,30 @@ std::string RecoverySshAuthorizedKeys() { return {}; }
 bool RecoverySshSetAuthorizedKeys(const std::string &) { return false; }
 int RecoverySshKeyCount() { return 0; }
 std::string RecoverySshAddress() { return {}; }
+#endif
+
+bool RecoveryFtpSupported() {
+#ifdef OF_ENABLE_WLAN
+  return true;
+#else
+  return false;
+#endif
+}
+
+#ifdef OF_ENABLE_WLAN
+bool RecoveryFtpRunning() { return aera::ftp::Running(); }
+bool RecoveryFtpStart(int port) { return aera::ftp::Start(port); }
+void RecoveryFtpStop() { aera::ftp::Stop(); }
+int RecoveryFtpPort() { return aera::ftp::Port(); }
+bool RecoveryFtpSetPort(int port) { return aera::ftp::SetPort(port); }
+std::string RecoveryFtpAddress() { return aera::ftp::Address(); }
+#else
+bool RecoveryFtpRunning() { return false; }
+bool RecoveryFtpStart(int) { return false; }
+void RecoveryFtpStop() {}
+int RecoveryFtpPort() { return 2121; }
+bool RecoveryFtpSetPort(int) { return false; }
+std::string RecoveryFtpAddress() { return {}; }
 #endif
 
 static const char *PreferenceVariable(Preference preference) {

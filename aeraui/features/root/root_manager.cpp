@@ -1679,6 +1679,27 @@ const char *ProviderName(Provider provider) {
   return "KernelSU";
 }
 
+Family FamilyFor(Provider provider) {
+  return provider == Provider::kAPatch || provider == Provider::kFolkPatch
+      ? Family::kKernelPatch : Family::kKernelSU;
+}
+
+const char *FamilyName(Family family) {
+  return family == Family::kKernelPatch ? "APatch / KernelPatch" : "KernelSU";
+}
+
+std::vector<Provider> FamilyProviders(Family family) {
+  if (family == Family::kKernelPatch)
+    return {Provider::kAPatch, Provider::kFolkPatch};
+  return {Provider::kKernelSU, Provider::kKernelSUNext, Provider::kSukiSU,
+          Provider::kBakaSU, Provider::kFinaSU, Provider::kYukiSU};
+}
+
+bool ProviderUsesSuperkey(Provider provider) {
+  return provider == Provider::kYukiSU || provider == Provider::kAPatch ||
+         provider == Provider::kFolkPatch;
+}
+
 Status Probe() {
   Status status;
   if (!Enabled()) {
@@ -1686,10 +1707,25 @@ Status Probe() {
     return status;
   }
   status.ksud_available = access(kKsud, X_OK) == 0 && access(kMagiskboot, X_OK) == 0;
+  status.kptools_available = access("/system/bin/kptools", X_OK) == 0 ||
+      access("/system/xbin/kptools", X_OK) == 0 || access("/sbin/kptools", X_OK) == 0;
+  status.storage_ready = access("/sdcard", R_OK | W_OK) == 0 &&
+                         EnsureDirectory(kRoot);
   utsname name{};
   if (uname(&name) == 0) status.kernel_release = name.release;
+  status.boot_available = access(BlockFor("boot", "a").c_str(), R_OK | W_OK) == 0 ||
+      access(BlockFor("boot", "b").c_str(), R_OK | W_OK) == 0;
+  if (!status.ksud_available && !status.kptools_available) {
+    status.error = "This AERA build contains neither KernelSU nor KernelPatch tooling.";
+    return status;
+  }
   if (!status.ksud_available) {
-    status.error = "This AERA build does not contain ksud and magiskboot."; return status;
+    // KernelPatch tooling can still patch boot without ksud; no KMI matching
+    // or init_boot inspection is meaningful in that configuration.
+    status.slot = "a";
+    if (!status.boot_available)
+      status.error = "No writable boot partition is available for KernelPatch.";
+    return status;
   }
   status.kmi = CaptureKsud({"boot-info", "current-kmi"});
   const auto supported = Lines(CaptureKsud({"boot-info", "supported-kmis"}));
@@ -1706,8 +1742,8 @@ Status Probe() {
   status.init_boot_available =
       std::find(partitions.begin(), partitions.end(), "init_boot") != partitions.end() &&
       access(BlockFor("init_boot", status.slot).c_str(), R_OK | W_OK) == 0;
-  status.storage_ready = access("/sdcard", R_OK | W_OK) == 0 &&
-                         EnsureDirectory(kRoot);
+  status.boot_available = status.boot_available ||
+      access(BlockFor("boot", status.slot).c_str(), R_OK | W_OK) == 0;
   if (!status.kmi_supported)
     status.error = "Exact KMI " + (status.kmi.empty() ? std::string("unknown") : status.kmi) +
                    " is not supported. AERA will not guess another module.";

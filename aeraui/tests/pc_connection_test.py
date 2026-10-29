@@ -640,6 +640,38 @@ class PcConnectionTest(unittest.TestCase):
         self.assertEqual((result["provider"], result["version"]), ("KernelSU Next", "v3.4.0"))
         self.assertTrue(result["offline_available"])
         self.assertEqual((result["offline_provider"], result["offline_version"]), ("next", "v3.3.0"))
+        self.assertEqual(self.request("/api/root", {"action": "inspect", "provider": "apatch", "slot": "a", "confirm": True})[0], 400)
+        status, job = self.request("/api/root", {"action": "patch", "provider": "apatch", "slot": "a", "confirm": True})
+        self.assertEqual((status, job["root_action"]), (200, "patch"))
+        self.assertIn("boot_a", job["name"])
+        self.wait_phase("completed")
+        # Canonical distribution ids (the recovery UI's ProviderId values).
+        for provider in ("kernelsu", "kernelsu-next", "sukisu-ultra", "bakasu", "finasu"):
+            self.assertEqual(self.request("/api/root", {"action": "refresh", "provider": provider,
+                                                        "slot": "a", "confirm": True})[0], 200)
+            self.wait_phase("completed")
+        self.assertEqual(self.request("/api/root", {"action": "patch", "provider": "unknown",
+                                                    "slot": "a", "confirm": True})[0], 400)
+        self.assertEqual(self.request("/api/root", {"action": "patch", "provider": "yukisu",
+                                                    "slot": "a", "superkey": "x" * 65,
+                                                    "confirm": True})[0], 400)
+        status, job = self.request("/api/root", {"action": "patch", "provider": "yukisu",
+                                                 "slot": "a", "superkey": "custom-key",
+                                                 "confirm": True})
+        self.assertEqual((status, job["root_action"]), (200, "patch"))
+        self.assertIn("init_boot_a", job["name"])
+        self.assertNotIn("custom-key", json.dumps(job))
+        self.wait_phase("completed")
+        status, job = self.request("/api/root", {"action": "patch", "provider": "folkpatch",
+                                                 "slot": "b", "confirm": True})
+        self.assertEqual((status, job["root_action"]), (200, "patch"))
+        self.assertIn("boot_b", job["name"])
+        self.wait_phase("completed")
+        self.assertEqual(self.request("/api/root", {"action": "inspect", "provider": "folkpatch",
+                                                    "slot": "a", "confirm": True})[0], 400)
+        self.assertEqual(self.request("/api/root", {"action": "inspect", "provider": "yukisu",
+                                                    "slot": "b", "confirm": True})[0], 200)
+        self.wait_phase("completed")
         self.assertEqual(self.request("/api/reboot", {"target": "system"})[0], 400)
         self.assertEqual(self.request("/api/reboot", {"target": "bad", "confirm": True})[0], 400)
         self.assertEqual(self.request("/api/reboot", {"target": "recovery", "confirm": True})[0], 200)
@@ -647,6 +679,29 @@ class PcConnectionTest(unittest.TestCase):
         time.sleep(1.1)
         self.command("reboot")
         self.assertFalse(self.request("/api/status")[1]["busy"])
+
+    def test_05cc_ssh_controls(self):
+        status, ssh = self.request("/api/ssh", {"action": "status"})
+        self.assertEqual(status, 200)
+        self.assertTrue(ssh["supported"])
+        self.assertFalse(ssh["running"])
+        self.assertEqual(ssh["port"], 22)
+        self.assertEqual(ssh["key_count"], 0)
+        self.assertEqual(self.request("/api/ssh", {"action": "start", "port": 0})[0], 400)
+        status, ssh = self.request("/api/ssh", {"action": "start", "port": 2222})
+        self.assertEqual((status, ssh["running"], ssh["port"]), (200, True, 2222))
+        status, ssh = self.request("/api/ssh", {"action": "password", "password": "s3cret"})
+        self.assertEqual((status, ssh["password"]), (200, "s3cret"))
+        status, ssh = self.request("/api/ssh", {"action": "password", "password": ""})
+        self.assertEqual((status, ssh["password"]), (200, "generated-password"))
+        keys = "ssh-ed25519 AAAA test@host\r\nssh-rsa BBBB other@host\r\n"
+        status, ssh = self.request("/api/ssh", {"action": "keys", "keys": keys})
+        self.assertEqual((status, ssh["key_count"]), (200, 2))
+        self.assertEqual(ssh["keys"], "ssh-ed25519 AAAA test@host\nssh-rsa BBBB other@host\n")
+        self.assertEqual(self.request("/api/ssh", {"action": "keys"})[0], 400)
+        self.assertEqual(self.request("/api/ssh", {"action": "bogus"})[0], 400)
+        status, ssh = self.request("/api/ssh", {"action": "stop"})
+        self.assertEqual((status, ssh["running"]), (200, False))
 
     def test_05d_payload_review_and_arb_confirmation(self):
         self.command("hold")

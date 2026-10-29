@@ -33,17 +33,19 @@ struct RootUi {
   lv_obj_t *manager_button = nullptr;
   lv_obj_t *module_list = nullptr;
   lv_obj_t *module_summary = nullptr;
-  lv_obj_t *provider_buttons[8] = {};
+  lv_obj_t *family_buttons[2] = {};
+  lv_obj_t *distribution_buttons[6] = {};
   lv_obj_t *partition_buttons[3] = {};
   lv_obj_t *slot_buttons[2] = {};
   lv_timer_t *timer = nullptr;
   ActionCallback callback = nullptr;
   void *context = nullptr;
+  root::Family family = root::Family::kKernelSU;
   root::Provider provider = root::Provider::kKernelSU;
   root::Job active_job = root::Job::kRefreshRelease;
   std::string slot = "a";
   std::string partition = "init_boot";
-  // YukiSU only: optional SuperKey used to authenticate the manager app.
+  // YukiSU (LKM) and KernelPatch managers (APatch/FolkPatch): optional SuperKey.
   // Kept in memory for this session; never written to storage or receipts.
   std::string superkey;
   root::Status device;
@@ -92,7 +94,10 @@ std::string ProgressText(root::Progress &progress, bool detail) {
 
 void SetBusy(RootUi *state, bool busy) {
   state->busy.store(busy);
-  for (auto *button : state->provider_buttons)
+  for (auto *button : state->family_buttons)
+    if (button) busy ? lv_obj_add_state(button, LV_STATE_DISABLED)
+                     : lv_obj_remove_state(button, LV_STATE_DISABLED);
+  for (auto *button : state->distribution_buttons)
     if (button) busy ? lv_obj_add_state(button, LV_STATE_DISABLED)
                      : lv_obj_remove_state(button, LV_STATE_DISABLED);
   for (auto *button : state->partition_buttons)
@@ -167,6 +172,8 @@ void ConfirmPatch(RootUi *state) {
   if ((!kernel_patch && !state->device.kmi_supported) ||
       (!kernel_patch && state->partition == "init_boot" &&
        !state->device.init_boot_available) ||
+      (kernel_patch && state->partition == "boot" &&
+       !state->device.boot_available) ||
       !state->device.storage_ready) {
     Sheet(state->screen, "Cannot patch this kernel",
           state->device.error.empty() ? "The kernel compatibility check failed."
@@ -174,10 +181,13 @@ void ConfirmPatch(RootUi *state) {
     return;
   }
   const auto release = root::CachedRelease(state->provider);
-  std::string text = i18n::Format(
-      "Provider\n%s\n\nExact kernel interface\n%s\n\nTarget\n%s_%s\n\n",
-      root::ProviderName(state->provider), state->device.kmi.c_str(),
-      state->partition.c_str(), state->slot.c_str());
+  std::string text = i18n::Format("Provider\n%s\n\n",
+                                  root::ProviderName(state->provider));
+  if (!kernel_patch)
+    text += i18n::Format("Exact kernel interface\n%s\n\n",
+                         state->device.kmi.c_str());
+  text += i18n::Format("Target\n%s_%s\n\n", state->partition.c_str(),
+                       state->slot.c_str());
   if (kernel_patch) {
     text += i18n::Format(
         "AERA creates a full rollback image, lets kptools patch %s with the "
@@ -407,9 +417,16 @@ void RenderModules(RootUi *state) {
 }
 
 void RefreshUi(RootUi *state) {
-  const bool supported = state->device.ksud_available && state->device.kmi_supported &&
-                         state->device.init_boot_available;
-  const std::string status = supported ? "Kernel compatible" : "Patching unavailable";
+  const bool kernel_patch =
+      root::FamilyFor(state->provider) == root::Family::kKernelPatch;
+  const bool supported = kernel_patch
+      ? state->device.kptools_available && state->device.boot_available &&
+            state->device.storage_ready
+      : state->device.ksud_available && state->device.kmi_supported &&
+            state->device.init_boot_available;
+  const std::string status = supported
+      ? (kernel_patch ? "KernelPatch ready" : "Kernel compatible")
+      : "Patching unavailable";
   i18n::BindLabel(state->hero_status, status.c_str());
   std::string detail = state->device.kernel_release;
   if (!state->device.kmi.empty())
@@ -421,31 +438,55 @@ void RefreshUi(RootUi *state) {
   }
   i18n::BindLabel(state->hero_detail, detail.c_str());
 
-  for (size_t i = 0; i < 8; ++i)
-    SetSelected(state->provider_buttons[i], static_cast<size_t>(state->provider) == i);
+  for (size_t i = 0; i < 2; ++i)
+    SetSelected(state->family_buttons[i],
+                (state->family == root::Family::kKernelPatch) == (i == 1));
+  const auto distributions = root::FamilyProviders(state->family);
+  for (size_t i = 0; i < 6; ++i) {
+    if (i < distributions.size()) {
+      lv_obj_remove_flag(state->distribution_buttons[i], LV_OBJ_FLAG_HIDDEN);
+      i18n::BindLabel(lv_obj_get_child(state->distribution_buttons[i], 0),
+                      root::ProviderName(distributions[i]));
+      SetSelected(state->distribution_buttons[i],
+                  distributions[i] == state->provider);
+    } else {
+      lv_obj_add_flag(state->distribution_buttons[i], LV_OBJ_FLAG_HIDDEN);
+    }
+  }
   SetSelected(state->partition_buttons[0], state->partition == "boot");
   SetSelected(state->partition_buttons[1], state->partition == "init_boot");
   SetSelected(state->partition_buttons[2], state->partition == "vendor_boot");
   SetSelected(state->slot_buttons[0], state->slot == "a");
   SetSelected(state->slot_buttons[1], state->slot == "b");
 
-  std::string patch_status = i18n::Format(
-      state->patch.patched ? "%s_%s is patched" : "%s_%s is stock",
-      state->partition.c_str(), state->slot.c_str());
-  i18n::BindLabel(state->patch_status, patch_status.c_str());
-  std::string patch_detail = state->patch.detail;
-  const auto release = root::CachedRelease(state->provider);
-  if (release.available && release.kmi == state->device.kmi) {
-    if (!patch_detail.empty()) patch_detail += "\n";
-    patch_detail += i18n::Format(
-        release.bundled ? "%s %s • bundled and ready offline"
-                        : "%s %s • online release selected",
-        root::ProviderName(state->provider), release.version.c_str());
+  std::string patch_status;
+  std::string patch_detail;
+  const auto release = kernel_patch ? root::Release{}
+                                    : root::CachedRelease(state->provider);
+  if (kernel_patch) {
+    patch_status = i18n::Format("KernelPatch target %s_%s",
+                                state->partition.c_str(), state->slot.c_str());
+    patch_detail = i18n::Translate(
+        "APatch/FolkPatch modify the kernel in boot; target inspection applies to the KernelSU family only.");
+  } else {
+    patch_status = i18n::Format(
+        state->patch.patched ? "%s_%s is patched" : "%s_%s is stock",
+        state->partition.c_str(), state->slot.c_str());
+    patch_detail = state->patch.detail;
+    if (release.available && release.kmi == state->device.kmi) {
+      if (!patch_detail.empty()) patch_detail += "\n";
+      patch_detail += i18n::Format(
+          release.bundled ? "%s %s • bundled and ready offline"
+                          : "%s %s • online release selected",
+          root::ProviderName(state->provider), release.version.c_str());
+    }
   }
+  i18n::BindLabel(state->patch_status, patch_status.c_str());
   i18n::BindLabel(state->patch_detail, patch_detail.c_str());
-  const bool update_available =
+  const bool update_available = !kernel_patch &&
       root::PatchUpdateAvailable(state->patch, state->provider, release);
-  const char *patch_action = !state->patch.patched ? "Verify & patch" :
+  const char *patch_action = kernel_patch ? "Verify & patch" :
+      !state->patch.patched ? "Verify & patch" :
       update_available ? "Update" :
       state->patch.aera_verified &&
               state->patch.provider == root::ProviderName(state->provider)
@@ -453,11 +494,12 @@ void RefreshUi(RootUi *state) {
   i18n::BindLabel(lv_obj_get_child(state->patch_button, 0), patch_action);
   FitButtonLabel(state->patch_button);
   if (!supported || !state->device.storage_ready ||
-      (state->patch.patched && !update_available))
+      (!kernel_patch && state->patch.patched && !update_available))
     lv_obj_add_state(state->patch_button, LV_STATE_DISABLED);
   else if (!state->busy.load())
     lv_obj_remove_state(state->patch_button, LV_STATE_DISABLED);
-  if ((!state->patch.patched && !state->patch.aera_verified) || !state->device.storage_ready)
+  if (!state->device.storage_ready ||
+      (!kernel_patch && !state->patch.patched && !state->patch.aera_verified))
     lv_obj_add_state(state->rollback_button, LV_STATE_DISABLED);
   else if (!state->busy.load())
     lv_obj_remove_state(state->rollback_button, LV_STATE_DISABLED);
@@ -481,6 +523,32 @@ void RefreshUi(RootUi *state) {
   else if (!state->busy.load())
     lv_obj_remove_state(state->manager_button, LV_STATE_DISABLED);
   RenderModules(state);
+}
+
+// The first choice is the patching mechanism, the second the distribution.
+// Switching family resets to that family's first distribution and moves the
+// target partition: KernelPatch patches the kernel in boot, the KSU family
+// normally patches init_boot.
+void SelectProvider(RootUi *state, root::Provider provider) {
+  if (state->busy.load() || state->preparing.load()) return;
+  state->provider = provider;
+  state->family = root::FamilyFor(provider);
+  state->partition =
+      state->family == root::Family::kKernelPatch ? "boot" : "init_boot";
+  if (!root::ProviderUsesSuperkey(provider)) state->superkey.clear();
+  root::BundledRelease(provider, state->device.kmi);
+  RefreshUi(state);
+}
+
+void SelectFamily(RootUi *state, root::Family family) {
+  if (state->busy.load() || state->preparing.load()) return;
+  state->family = family;
+  const auto providers = root::FamilyProviders(family);
+  if (!providers.empty()) state->provider = providers.front();
+  state->partition = family == root::Family::kKernelPatch ? "boot" : "init_boot";
+  if (!root::ProviderUsesSuperkey(state->provider)) state->superkey.clear();
+  root::BundledRelease(state->provider, state->device.kmi);
+  RefreshUi(state);
 }
 
 void Poll(RootUi *state) {
@@ -539,10 +607,11 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   state->context = context;
   Clear(screen);
   MainBackground(screen);
-  Header(screen, "Root Manager", "Kernel patching and module control, powered by ksud.",
+  Header(screen, "Root Manager",
+         "Kernel patching and module control for KernelSU and KernelPatch.",
          callback, context);
   const bool landscape = Landscape(screen);
-  state->list = Scroll(screen, landscape ? 340 : 452, landscape ? 1040 : 2900);
+  state->list = Scroll(screen, landscape ? 340 : 452, landscape ? 1040 : 3060);
 
   auto *hero = lv_obj_create(state->list);
   Panel(hero, 38, kMainSheet);
@@ -564,37 +633,44 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   lv_obj_set_pos(state->hero_detail, 168, 96);
   lv_obj_set_width(state->hero_detail, 1080);
 
-  auto *provider_title = Label(state->list, "ROOT PROVIDER", &lv_font_montserrat_20, kMuted);
+  auto *provider_title = Label(state->list, "ROOT FAMILY", &lv_font_montserrat_20, kMuted);
   lv_obj_set_pos(provider_title, 18, 278);
-  const root::Provider providers[] = {root::Provider::kKernelSU,
+  const root::Family families[] = {root::Family::kKernelSU,
+      root::Family::kKernelPatch};
+  for (size_t i = 0; i < sizeof(families) / sizeof(families[0]); ++i) {
+    state->family_buttons[i] = Button(state->list, root::FamilyName(families[i]),
+        [state, family = families[i]] { SelectFamily(state, family); });
+    lv_obj_set_pos(state->family_buttons[i],
+                   18 + static_cast<int>(i) * 664, 320);
+    lv_obj_set_size(state->family_buttons[i], 646, 96);
+    StyleRootButton(state->family_buttons[i]);
+  }
+
+  auto *distribution_title = Label(state->list, "DISTRIBUTION",
+                                   &lv_font_montserrat_20, kMuted);
+  lv_obj_set_pos(distribution_title, 18, 440);
+  const root::Provider default_distributions[] = {root::Provider::kKernelSU,
       root::Provider::kKernelSUNext, root::Provider::kSukiSU,
       root::Provider::kBakaSU, root::Provider::kFinaSU,
-      root::Provider::kYukiSU, root::Provider::kAPatch,
-      root::Provider::kFolkPatch};
-  for (size_t i = 0; i < sizeof(providers) / sizeof(providers[0]); ++i) {
-    state->provider_buttons[i] = Button(state->list, root::ProviderName(providers[i]),
-        [state, provider = providers[i]] {
-          if (state->busy.load()) return;
-          state->provider = provider;
-          // KernelPatch modifies the kernel itself, which lives in boot on GKI
-          // devices; the KSU family defaults to init_boot.
-          const bool kernel_patch = provider == root::Provider::kAPatch ||
-                                    provider == root::Provider::kFolkPatch;
-          state->partition = kernel_patch ? "boot" : "init_boot";
-          root::BundledRelease(provider, state->device.kmi);
-          RefreshUi(state);
+      root::Provider::kYukiSU};
+  for (size_t i = 0; i < sizeof(default_distributions) / sizeof(default_distributions[0]); ++i) {
+    state->distribution_buttons[i] = Button(state->list,
+        root::ProviderName(default_distributions[i]),
+        [state, index = i] {
+          const auto providers = root::FamilyProviders(state->family);
+          if (index < providers.size()) SelectProvider(state, providers[index]);
         });
-    // Four per row: eight providers no longer fit on a single 1312 px line.
-    lv_obj_set_pos(state->provider_buttons[i],
-                   18 + static_cast<int>(i % 4) * 322,
-                   320 + static_cast<int>(i / 4) * 112);
-    lv_obj_set_size(state->provider_buttons[i], 306, 104);
-    StyleRootButton(state->provider_buttons[i]);
+    // Three per row: the KernelSU family has six distributions.
+    lv_obj_set_pos(state->distribution_buttons[i],
+                   18 + static_cast<int>(i % 3) * 440,
+                   482 + static_cast<int>(i / 3) * 104);
+    lv_obj_set_size(state->distribution_buttons[i], 420, 96);
+    StyleRootButton(state->distribution_buttons[i]);
   }
 
   auto *partition_title = Label(state->list, "TARGET PARTITION",
                                 &lv_font_montserrat_20, kMuted);
-  lv_obj_set_pos(partition_title, 18, 556);
+  lv_obj_set_pos(partition_title, 18, 706);
   const char *partitions[] = {"boot", "init_boot", "vendor_boot"};
   for (size_t i = 0; i < 3; ++i) {
     state->partition_buttons[i] = Button(state->list, partitions[i],
@@ -603,13 +679,13 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
           state->partition = value;
           RefreshUi(state);
         });
-    lv_obj_set_pos(state->partition_buttons[i], 18 + static_cast<int>(i) * 428, 592);
+    lv_obj_set_pos(state->partition_buttons[i], 18 + static_cast<int>(i) * 428, 742);
     lv_obj_set_size(state->partition_buttons[i], 420, 96);
     StyleRootButton(state->partition_buttons[i]);
   }
 
   auto *slot_title = Label(state->list, "TARGET SLOT", &lv_font_montserrat_20, kMuted);
-  lv_obj_set_pos(slot_title, 18, 712);
+  lv_obj_set_pos(slot_title, 18, 862);
   for (size_t i = 0; i < 2; ++i) {
     const std::string slot(1, i ? 'b' : 'a');
     state->slot_buttons[i] = Button(state->list, ("Slot " + std::string(1, i ? 'B' : 'A')).c_str(),
@@ -619,14 +695,14 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
           state->patch = root::InspectSlot(slot);
           RefreshUi(state);
         });
-    lv_obj_set_pos(state->slot_buttons[i], static_cast<int>(i) * 652, 748);
+    lv_obj_set_pos(state->slot_buttons[i], static_cast<int>(i) * 652, 898);
     lv_obj_set_size(state->slot_buttons[i], 632, 100);
     StyleRootButton(state->slot_buttons[i]);
   }
 
   auto *patch_card = lv_obj_create(state->list);
   Panel(patch_card, 34, kMainSheet);
-  lv_obj_set_pos(patch_card, 0, 876);
+  lv_obj_set_pos(patch_card, 0, 1026);
   lv_obj_set_size(patch_card, 1312, 358);
   state->patch_status = Label(patch_card, "Inspecting init_boot…", &lv_font_montserrat_36, kText);
   lv_obj_set_pos(state->patch_status, 32, 28);
@@ -643,13 +719,10 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   lv_obj_set_style_radius(state->progress, 7, LV_PART_MAIN);
   lv_obj_set_style_radius(state->progress, 7, LV_PART_INDICATOR);
   state->patch_button = Button(patch_card, "Verify & patch", [state] {
-    if (state->provider == root::Provider::kYukiSU ||
-        state->provider == root::Provider::kAPatch ||
-        state->provider == root::Provider::kFolkPatch) {
+    if (root::ProviderUsesSuperkey(state->provider))
       ShowSuperKeyPrompt(state);
-    } else {
+    else
       ConfirmPatch(state);
-    }
   });
   StyleRootButton(state->patch_button);
   lv_obj_set_pos(state->patch_button, 32, 220);
@@ -672,7 +745,7 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
 
   auto *manager_card = lv_obj_create(state->list);
   Panel(manager_card, 34, kMainSheet);
-  lv_obj_set_pos(manager_card, 0, 1268);
+  lv_obj_set_pos(manager_card, 0, 1418);
   lv_obj_set_size(manager_card, 1312, 258);
   auto *manager_plate = lv_obj_create(manager_card);
   Panel(manager_plate, 22, IconBackground());
@@ -705,20 +778,20 @@ void BuildRootManagerScene(lv_obj_t *screen, ActionCallback callback, void *cont
   lv_obj_set_size(state->manager_button, 420, 106);
 
   auto *modules_title = Label(state->list, "MODULES", &lv_font_montserrat_20, kMuted);
-  lv_obj_set_pos(modules_title, 18, 1566);
+  lv_obj_set_pos(modules_title, 18, 1712);
   state->module_summary = Label(state->list, "Reading installed modules…",
                                 &lv_font_montserrat_24, kMutedStrong);
-  lv_obj_set_pos(state->module_summary, 18, 1606);
+  lv_obj_set_pos(state->module_summary, 18, 1752);
   auto *refresh = Button(state->list, "Check updates", [state] {
     root::Request request; request.job = root::Job::kRefreshModules;
     Start(state, request);
   });
   StyleRootButton(refresh);
-  lv_obj_set_pos(refresh, 962, 1556);
+  lv_obj_set_pos(refresh, 962, 1702);
   lv_obj_set_size(refresh, 350, 96);
   state->module_list = lv_obj_create(state->list);
   Clear(state->module_list);
-  lv_obj_set_pos(state->module_list, 0, 1666);
+  lv_obj_set_pos(state->module_list, 0, 1812);
   lv_obj_set_size(state->module_list, 1312, 1200);
   lv_obj_remove_flag(state->module_list, LV_OBJ_FLAG_SCROLLABLE);
 

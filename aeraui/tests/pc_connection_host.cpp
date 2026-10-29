@@ -162,6 +162,39 @@ std::vector<Volume> RecoveryImageVolumes() {
           {"ABL", "/block/abl", 4096, false, true, false},
           {"Recovery", "/recovery", 4096, false, true, false}};
 }
+static bool ssh_running = false;
+static int ssh_port = 22;
+static std::string ssh_password = "test-password";
+static std::string ssh_keys;
+bool RecoverySshSupported() { return true; }
+bool RecoverySshRunning() { return ssh_running; }
+bool RecoverySshStart(int port) {
+  if (port <= 0 || port > 65535) return false;
+  ssh_port = port; ssh_running = true; return true;
+}
+void RecoverySshStop() { ssh_running = false; }
+int RecoverySshPort() { return ssh_port; }
+bool RecoverySshSetPort(int port) {
+  if (port <= 0 || port > 65535) return false;
+  ssh_port = port; return true;
+}
+std::string RecoverySshPassword() { return ssh_password; }
+bool RecoverySshSetPassword(const std::string &password) {
+  ssh_password = password.empty() ? "generated-password" : password; return true;
+}
+std::string RecoverySshAuthorizedKeys() { return ssh_keys; }
+bool RecoverySshSetAuthorizedKeys(const std::string &keys) { ssh_keys = keys; return true; }
+int RecoverySshKeyCount() {
+  int count = 0;
+  for (size_t start = 0; start < ssh_keys.size();) {
+    const size_t end = ssh_keys.find('\n', start);
+    const std::string line = ssh_keys.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    start = end == std::string::npos ? ssh_keys.size() : end + 1;
+    if (!line.empty() && line[0] != '#') ++count;
+  }
+  return count;
+}
+std::string RecoverySshAddress() { return wifi_connected ? wifi_address : ""; }
 }
 namespace aera::remote {
 std::string Address() { return wifi_connected ? wifi_address : ""; }
