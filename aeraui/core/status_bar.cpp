@@ -491,7 +491,7 @@ void BuildShade(StatusState *state) {
 
   auto *title = Label(state->sheet, "Quick Settings", &lv_font_montserrat_48, kText);
   lv_obj_set_pos(title, offset, 62);
-  auto *hint = Label(state->sheet, "AERA controls", &lv_font_montserrat_24, kMuted);
+  auto *hint = Label(state->sheet, "ASRP controls", &lv_font_montserrat_24, kMuted);
   lv_obj_set_pos(hint, offset + 2, 140);
   auto *close = lv_button_create(state->sheet);
   NoScroll(close);
@@ -585,7 +585,7 @@ void BuildShade(StatusState *state) {
             &lv_font_montserrat_36, kAccent);
   lv_obj_align(update_icon, LV_ALIGN_LEFT_MID, 34, 0);
   state->shade_update_title =
-      Label(state->shade_update, "AERA update available",
+      Label(state->shade_update, "ASRP update available",
             &lv_font_montserrat_32, kText);
   lv_obj_set_pos(state->shade_update_title, 104, 22);
   lv_obj_set_width(state->shade_update_title, content_width - 190);
@@ -841,7 +841,7 @@ void RefreshShade(StatusState *state) {
         lv_obj_get_y(state->shade_download));
     if (update.available) {
       const std::string title = i18n::Format(
-          "AERA %s available", update.release.version.c_str());
+          "ASRP %s available", update.release.version.c_str());
       i18n::BindLabel(state->shade_update_title, title.c_str());
       i18n::BindLabel(state->shade_update_detail, "Tap to review the update");
       lv_obj_remove_flag(state->shade_update, LV_OBJ_FLAG_HIDDEN);

@@ -200,7 +200,7 @@ void BuildDeveloperScene(lv_obj_t *screen, ActionCallback callback, void *contex
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(list, 18, 0);
   lv_obj_set_style_pad_bottom(list, 30, 0);
-  auto *back = Button(list, LV_SYMBOL_LEFT "  About AERA", [=] { callback(Action::kBack, context); });
+  auto *back = Button(list, LV_SYMBOL_LEFT "  About ASRP", [=] { callback(Action::kBack, context); });
   lv_obj_set_size(back, LV_PCT(100), 104);
   auto *note = Label(list, "Experimental. Changes affect this recovery session, not Android. Hold Volume Down during startup to skip saved tuning.",
                      &lv_font_montserrat_28, kAmber);

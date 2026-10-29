@@ -72,7 +72,7 @@ UpdateScene BuildUpdateScene(lv_obj_t *screen, ActionCallback callback,
                              void *context) {
   UpdateScene result;
   result.screen = screen;
-  Header(screen, "Recovery Update", "AERA recovery releases", callback, context);
+  Header(screen, "Recovery Update", "ASRP recovery releases", callback, context);
   const bool landscape = Landscape(screen);
 
   auto *summary = lv_obj_create(screen);
@@ -268,7 +268,7 @@ void RefreshUpdateScene(const UpdateScene &scene) {
     case update::Phase::kUpToDate:
       status = snapshot.CanDownload() &&
                        snapshot.release.build_time < snapshot.local_build_time
-                   ? "Older recovery build" : "AERA is up to date";
+                   ? "Older recovery build" : "ASRP is up to date";
       break;
     case update::Phase::kDownloading:
       status = "Downloading update";

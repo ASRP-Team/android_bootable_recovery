@@ -313,7 +313,7 @@ void BrandHero(lv_obj_t *parent, int x, int y, int width, int height,
   // These two labels are part of the logo composition rather than interface
   // copy. Keep their metrics fixed so larger Density modes cannot distort the
   // crop or overlap the mark.
-  auto *word = FixedLabel(hero, "AERA", &lv_font_montserrat_48, kText);
+  auto *word = FixedLabel(hero, "ASRP", &lv_font_montserrat_48, kText);
   lv_obj_set_style_transform_scale(word, landscape ? 330 : 310, 0);
   lv_obj_set_style_text_letter_space(word, 8, 0);
   lv_obj_align(word, LV_ALIGN_BOTTOM_MID, 0, landscape ? -132 : -118);
@@ -328,7 +328,7 @@ void BrandHero(lv_obj_t *parent, int x, int y, int width, int height,
 }  // namespace
 
 void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
-  Header(screen, "About AERA", "Independent. Open. Built for recovery.",
+  Header(screen, "About ASRP", "Independent. Open. Built for recovery.",
          callback, context);
   const bool landscape = Landscape(screen);
   auto *content = Scroll(screen, landscape ? 330 : 446,
@@ -346,7 +346,7 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   if (landscape) {
     BrandHero(content, 0, 0, 980, 842, true, callback, context);
 
-    auto *credits = Kicker(content, "THE PEOPLE BEHIND AERA", kAccent);
+    auto *credits = Kicker(content, "THE PEOPLE BEHIND ASRP", kAccent);
     lv_obj_set_pos(credits, 1040, 4);
     Contributor(content, 1032, 54, 2008, "J", "Jonas Salo · koaaN",
                 "Founder, lead developer & interface direction", 45);
@@ -374,7 +374,7 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   } else {
     BrandHero(content, 0, 0, 1312, 716, false, callback, context);
 
-    auto *credits = Kicker(content, "THE PEOPLE BEHIND AERA", kAccent);
+    auto *credits = Kicker(content, "THE PEOPLE BEHIND ASRP", kAccent);
     lv_obj_set_pos(credits, 18, 782);
     Contributor(content, 0, 838, 1312, "J", "Jonas Salo · koaaN",
                 "Founder, lead developer & interface direction", 48);
@@ -410,8 +410,8 @@ void BuildAboutScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     auto *open = Kicker(foundation, "OPEN-SOURCE FOUNDATION", kAccent);
     lv_obj_set_pos(open, 38, 34);
     auto *copy = Label(foundation,
-        "AERA stands on years of open recovery work from Android Recovery, "
-        "TWRP, OrangeFox and LVGL contributors.",
+        "ASRP builds on years of open recovery work from AERA Recovery, "
+        "Android Recovery, TWRP, OrangeFox and LVGL contributors.",
         &lv_font_montserrat_28, kText);
     lv_obj_set_pos(copy, 38, 98);
     lv_obj_set_width(copy, 1236);

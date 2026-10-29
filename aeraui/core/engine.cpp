@@ -2193,7 +2193,7 @@ private:
           });
       if (entry != recent_apps_.end()) recents_drag_preview_ = entry->preview;
     } else {
-      identity.title = "AERA Recovery";
+      identity.title = "ASRP Recovery";
       identity.summary = on_home_ ? "Home" : "Recovery workspace";
       identity.icon = LV_SYMBOL_HOME;
       recents_drag_preview_ = CaptureScreenPreview();

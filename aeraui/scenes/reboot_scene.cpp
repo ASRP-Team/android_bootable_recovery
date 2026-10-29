@@ -62,7 +62,7 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
       const std::string title =
           i18n::Format("Switch to Slot %s?", slot.c_str());
       const std::string detail = i18n::Format(
-          "AERA will mark Slot %s active. This does not reboot the device yet.",
+          "ASRP will mark Slot %s active. This does not reboot the device yet.",
           slot.c_str());
       struct Review {
         bool acknowledged = false;
@@ -160,7 +160,7 @@ void BuildRebootScene(lv_obj_t *screen, ActionCallback callback, void *context) 
   struct Destination { const char *icon, *name, *detail; Action action; };
   const std::array<Destination, 5> destinations{{
     {LV_SYMBOL_HOME, "Android", "Leave recovery and start the system", Action::kRebootSystem},
-    {LV_SYMBOL_REFRESH, "Recovery", "Restart AERA Recovery Project", Action::kRebootRecovery},
+    {LV_SYMBOL_REFRESH, "Recovery", "Restart ASRP Recovery Project", Action::kRebootRecovery},
     {LV_SYMBOL_SETTINGS, "Bootloader", "Restart in hardware fastboot mode", Action::kRebootBootloader},
     {LV_SYMBOL_USB, "Fastbootd", "Userspace fastboot for logical partitions", Action::kRebootFastbootd},
     {LV_SYMBOL_POWER, "Power off", "Turn off the device", Action::kPowerOff}}};

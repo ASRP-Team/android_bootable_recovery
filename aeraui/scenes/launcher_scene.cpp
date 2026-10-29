@@ -117,7 +117,7 @@ const char *PluginSummary(const plugins::Plugin &plugin) {
   if (plugin.entry == "streams") return "Stream videos and music without ads.";
   if (plugin.entry == "recorder") return "Record the recovery screen to video.";
   if (plugin.entry == "appvault") return "Back up and restore installed apps.";
-  if (plugin.id == "mirror") return "View and control AERA from another screen.";
+  if (plugin.id == "mirror") return "View and control ASRP from another screen.";
   return plugin.description.c_str();
 }
 
@@ -422,11 +422,11 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
             "Browse storage, preview images and install ZIPs.", kAccent,
             [=] { callback(Action::kFiles, context); }, false, false, false, themed_art::Kind::Files);
     auto *store = AppCard(screen, 1072, 356, 976, LV_SYMBOL_DOWNLOAD, "Plugin Manager",
-            "Discover and install signed AERA extensions.", kAccent,
+            "Discover and install signed ASRP extensions.", kAccent,
             [=] { callback(Action::kPlugins, context); }, false, false, false, themed_art::Kind::Packages);
     if (!updates.empty()) MarkUpdateAvailable(store);
     AppCard(screen, 2080, 356, 976, LV_SYMBOL_EDIT, "Terminal",
-            "A real recovery shell built into AERA.", kAccent,
+            "A real recovery shell built into ASRP.", kAccent,
             [=] { callback(Action::kTerminal, context); }, false, true);
     auto *extensions = Label(screen, "INSTALLED PLUGINS", &lv_font_montserrat_18, kMuted);
     lv_obj_set_pos(extensions, 80, 760);
@@ -452,7 +452,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
                         kAccent, [=] { callback(Action::kPlugins, context); },
                         false, false, false, themed_art::Kind::Packages);
   auto *terminal = AppCard(screen, 64, 884, 1312, LV_SYMBOL_EDIT, "Terminal",
-                           "Run recovery commands in the built-in AERA shell.",
+                           "Run recovery commands in the built-in ASRP shell.",
                            kAccent, [=] { callback(Action::kTerminal, context); },
                            false, true);
   AnimateEnter(files, 20, 14);
@@ -476,7 +476,7 @@ void BuildHomeScene(lv_obj_t *screen, ActionCallback callback, void *context) {
     Panel(empty, 40, kMainSheet);
     lv_obj_set_pos(empty, 64, 1378);
     lv_obj_set_size(empty, 1312, 310);
-    auto *title = Label(empty, "Build AERA your way", &lv_font_montserrat_48, kText);
+    auto *title = Label(empty, "Build ASRP your way", &lv_font_montserrat_48, kText);
     lv_obj_set_pos(title, 42, 48);
     auto *copy = Label(empty,
         "Install the browser now. Audio and GPU extensions can follow without growing recovery.img.",

@@ -295,9 +295,9 @@ function renderRootInspection(job) {
   const rows=[['Target',result.target+(active?` / ${job.root_slot===active?'active':'inactive'} slot`:'')],
     ['Kernel',result.kernel],
     ['Root',!result.inspected?'Unknown':result.patched?(result.provider||'KernelSU-compatible'):'No root patch detected'],
-    ['Version',!result.inspected?'Unknown':result.patched?(result.version||'Unknown / no AERA receipt'):'Not applicable'],
-    ['Verification',!result.inspected?'Could not verify':result.verified?'Verified AERA patch':
-      result.patched?'Detected / no AERA verification':'No root patch detected']];
+    ['Version',!result.inspected?'Unknown':result.patched?(result.version||'Unknown / no ASRP receipt'):'Not applicable'],
+    ['Verification',!result.inspected?'Could not verify':result.verified?'Verified ASRP patch':
+      result.patched?'Detected / no ASRP verification':'No root patch detected']];
   for(const [label,value] of rows){
     const row=document.createElement('div'),term=document.createElement('dt'),detail=document.createElement('dd');
     term.textContent=label;detail.textContent=value||'Unknown';row.append(term,detail);details.append(row);
@@ -433,7 +433,7 @@ function updateInstallationChoice() {
   $('confirmInstall').textContent=fast?'Fast flash':extract?'Extract images':advanced?'Flash selected':state.job?.save_path?'Save file':state.job?.plugin_install?'Install plugin':state.job?.partition?'Flash image':'Install ZIP';
   $('methodSummary').hidden=!info?.is_payload;
   $('methodSummary').textContent=extract?`Destination: ${state.info?.extraction_root||'Current storage / AERA/Extracted'}`:info?.is_payload?
-    `${fast||advanced?'Target: current slot '+info.fast_slot+' (unchanged)':'Method: normal package installer'}\nKeep current ABL: ${state.info?.preserve_abl?'On / '+(overridden.includes('abl')?'manual override':fast||advanced?'not flashed':'protected'):'Off'}\nKeep AERA installed: ${state.info?.preserve_recovery?'On / '+(overridden.includes('recovery')?'manual override':fast||advanced?'not flashed':'protected'):'Off'}${state.info?.preserve_splash?'\nKeep splash: '+(overridden.includes('splash')?'manual override':fast||advanced?'not flashed':'protected'):''}`:'';
+    `${fast||advanced?'Target: current slot '+info.fast_slot+' (unchanged)':'Method: normal package installer'}\nKeep current ABL: ${state.info?.preserve_abl?'On / '+(overridden.includes('abl')?'manual override':fast||advanced?'not flashed':'protected'):'Off'}\nKeep ASRP installed: ${state.info?.preserve_recovery?'On / '+(overridden.includes('recovery')?'manual override':fast||advanced?'not flashed':'protected'):'Off'}${state.info?.preserve_splash?'\nKeep splash: '+(overridden.includes('splash')?'manual override':fast||advanced?'not flashed':'protected'):''}`:'';
   $('payloadCount').textContent=`${names.length} selected / ${size(images.reduce((total,partition)=>total+(partition.bytes||0),0))}`;
   updateConfirmEnabled();
 }
@@ -452,8 +452,8 @@ showConfirmation = function() {
   if(info?.plugin){
     $('confirmTitle').textContent='Confirm plugin installation';
     $('confirmWarning').textContent=info.unofficial?
-      'This plugin is not verified by the AERA signing key. Install it only if you trust its source.':
-      'Install this verified AERA plugin in persistent storage. No partitions will be flashed.';
+      'This plugin is not verified by the ASRP signing key. Install it only if you trust its source.':
+      'Install this verified ASRP plugin in persistent storage. No partitions will be flashed.';
   }
   if(state.job?.partition&&!state.info?.partitions.find(target=>target.path===state.job.partition)?.slot_select){
     for(const row of $('review').children)if(row.firstElementChild.textContent==='Slots')row.lastElementChild.textContent='Single partition';
@@ -547,8 +547,8 @@ async function rootOperation(action) {
   const providerName=$('rootProvider').selectedOptions[0].textContent;
   const kernelpatch=rootFamilyKey()==='kernelpatch';
   const superkeyNote=rootSuperkeyUsed()?`\nSuperKey: ${superkey?'custom key will be embedded':'none (official manager default)'}`:'';
-  const text=action==='patch'?(kernelpatch?`${providerName}\nTarget: ${partition}_${slot}\n\nAERA saves a verified full rollback image, patches ${partition} with kptools using the kpimg on /sdcard/kpimg, verifies it, and only then writes the selected slot. This does not switch slots or reboot.${superkeyNote}`:`${providerName}\nTarget: ${partition}_${slot}\n\nThe target boot kernel must match an exact module. AERA saves a verified full rollback image before writing. This does not switch slots or reboot.${superkeyNote}`):
-    action==='rollback'?`Restore the latest verified AERA backup to ${partition}_${slot}. This overwrites the selected partition.`:
+  const text=action==='patch'?(kernelpatch?`${providerName}\nTarget: ${partition}_${slot}\n\nASRP saves a verified full rollback image, patches ${partition} with kptools using the kpimg on /sdcard/kpimg, verifies it, and only then writes the selected slot. This does not switch slots or reboot.${superkeyNote}`:`${providerName}\nTarget: ${partition}_${slot}\n\nThe target boot kernel must match an exact module. ASRP saves a verified full rollback image before writing. This does not switch slots or reboot.${superkeyNote}`):
+    action==='rollback'?`Restore the latest verified ASRP backup to ${partition}_${slot}. This overwrites the selected partition.`:
     `${providerName}\nDownload and stage the manager APK for installation when Android starts. This does not patch a partition.`;
   confirmation(action==='patch'?'Patch selected slot?':action==='rollback'?'Restore root backup?':'Install manager APK?',text,run);
 }
@@ -861,7 +861,7 @@ async function authorizedText(path) {
   const response=await fetch('/api/'+path,{headers:{Authorization:'Bearer '+state.token},cache:'no-store',signal:AbortSignal.timeout(15000)});
   if(!response.ok){let error;try{error=await response.json()}catch{}throw new Error(error?.error||'Recovery could not provide this file.');}return response.text();
 }
-$('certificateDownload').onclick=async()=>{try{downloadText(await authorizedText('certificate'),'AERA-device.crt','application/x-pem-file')}catch(error){notice(error.message)}};
+$('certificateDownload').onclick=async()=>{try{downloadText(await authorizedText('certificate'),'ASRP-device.crt','application/x-pem-file')}catch(error){notice(error.message)}};
 function renderInstallerDetails(presentation){
   let panel=$('installerDetails');
   if(!panel){panel=document.createElement('div');panel.id='installerDetails';panel.className='installer-details';$('statusTitle').closest('.status-head').before(panel);}
@@ -886,7 +886,7 @@ function renderPackageInfo(panel,info){
     const title=document.createElement('h3');title.textContent=info.name||info.plugin_id;panel.append(title);
     const list=document.createElement('dl');list.className='review';
     for(const [name,value] of [['Version',info.version],['Author',info.author],['Identity',info.plugin_id],
-      ['Source',info.unofficial?'Unofficial / not verified':'Verified AERA signature'],['Permissions',(info.permissions||[]).join(', ')]]){
+      ['Source',info.unofficial?'Unofficial / not verified':'Verified ASRP signature'],['Permissions',(info.permissions||[]).join(', ')]]){
       if(!value)continue;const row=document.createElement('div'),label=document.createElement('dt'),text=document.createElement('dd');
       label.textContent=name;text.textContent=value;row.append(label,text);list.append(row);
     }
@@ -918,8 +918,8 @@ function renderPackageInfo(panel,info){
   const heading=document.createElement('h3');heading.textContent='Partitions';details.append(heading);
   rows(details,(info.partitions||[]).map(partition=>[partition.name,size(partition.bytes)]));panel.append(details);
 }
-$('recoveryLog').onclick=async()=>{try{downloadText(await authorizedText('log'),'AERA-recovery.log')}catch(error){notice(error.message)}};
-for(const [id,path,name] of [['logcatLog','log/logcat','AERA-logcat.txt'],['kernelLog','log/kernel','AERA-kernel.log']]) $(id).onclick=async()=>{
+$('recoveryLog').onclick=async()=>{try{downloadText(await authorizedText('log'),'ASRP-recovery.log')}catch(error){notice(error.message)}};
+for(const [id,path,name] of [['logcatLog','log/logcat','ASRP-logcat.txt'],['kernelLog','log/kernel','ASRP-kernel.log']]) $(id).onclick=async()=>{
   $(id).disabled=true;const text=$(id).textContent;$(id).textContent='Collecting...';
   try{downloadText(await authorizedText(path),name)}catch(error){notice(error.message)}
   finally{$(id).textContent=text;$(id).disabled=false;}
