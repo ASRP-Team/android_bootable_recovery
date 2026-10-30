@@ -43,6 +43,7 @@ int main() {
   assert((hello.flags & kFeatureBackNavigation) != 0);
   assert(!session.Supports(kFeatureDesktop));
   assert(!session.Supports(kFeatureClipboard));
+  assert(!session.Supports(kFeatureTextInput));
   const Message resume = ReceiveHost(pair[1]);
   assert(resume.kind == Kind::kLifecycle);
   assert(resume.value == static_cast<uint32_t>(Lifecycle::kResume));

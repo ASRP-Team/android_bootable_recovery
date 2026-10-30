@@ -1,18 +1,18 @@
 {
   "schema": 1,
-  "generated": "2026-10-24",
+  "generated": "2026-10-29",
   "architecture": "aarch64",
   "providers": [
     {
       "id": "kernelsu",
       "name": "KernelSU",
       "repository": "tiann/KernelSU",
-      "version": "v3.3.0",
+      "version": "v3.3.1",
       "assets": [
-        {"kmi":"android14-6.1","name":"lkm-aarch64-android14-6.1_kernelsu.ko","size":386600,"sha256":"db47d831e5a61bc4ca1563915ac1c61cd40ceda7dc6c3d19a9572dfdce72d14c","archive":false},
-        {"kmi":"android15-6.6","name":"lkm-aarch64-android15-6.6_kernelsu.ko","size":315176,"sha256":"c31d994aaf285e7bf4cf1ec38c2bbf2d7f303d1a4a7d616405bcd9f850d684e5","archive":false},
-        {"kmi":"android16-6.12","name":"lkm-aarch64-android16-6.12_kernelsu.ko","size":386624,"sha256":"877286f81d500c4ec546c96e9718c186b7379573c97ba5d5a35dd9a91465d076","archive":false},
-        {"kmi":"android17-6.18","name":"lkm-aarch64-android17-6.18_kernelsu.ko","size":357304,"sha256":"adc743246822b3ea96c218425d4208aed2436805a73d2f3e8ed78cfa8602cadf","archive":false}
+        {"kmi":"android14-6.1","name":"lkm-aarch64-android14-6.1_kernelsu.ko","size":413296,"sha256":"27d45be86a68e03aa9d8e103fe229c66245f5c3ddccd236e52272131ad156f0e","archive":false},
+        {"kmi":"android15-6.6","name":"lkm-aarch64-android15-6.6_kernelsu.ko","size":330664,"sha256":"e57ce23de951be6b0dee5030f6724322fed126aa4af71828994437bfb0bb61ad","archive":false},
+        {"kmi":"android16-6.12","name":"lkm-aarch64-android16-6.12_kernelsu.ko","size":404928,"sha256":"7e25d68419d08535d35e3630d9f0ff1a08e97a7026d36e878991eecb13554d9f","archive":false},
+        {"kmi":"android17-6.18","name":"lkm-aarch64-android17-6.18_kernelsu.ko","size":375328,"sha256":"d848bcbeb3f4daffeea4b2ad2d70aac8f79211ce9f15f200dd87c7b8d68ebe30","archive":false}
       ]
     },
     {
@@ -31,12 +31,12 @@
       "id": "sukisu-ultra",
       "name": "SukiSU Ultra",
       "repository": "SukiSU-Ultra/SukiSU-Ultra",
-      "version": "v4.2.1-r1",
+      "version": "v4.3.0",
       "assets": [
-        {"kmi":"android14-6.1","name":"lkm-aarch64-android14-6.1_kernelsu.ko","size":542952,"sha256":"e62e6130a6f0abc009fe4a0164fa74d8575c5b115bc3a646c105977ed98d64db","archive":false},
-        {"kmi":"android15-6.6","name":"lkm-aarch64-android15-6.6_kernelsu.ko","size":436152,"sha256":"8e9b805decedc53936109a686bdd4216e806e2438c99b87d34ee1fdc82e1897d","archive":false},
-        {"kmi":"android16-6.12","name":"lkm-aarch64-android16-6.12_kernelsu.ko","size":512888,"sha256":"6bd6632b27cb80de73537cc47bc7cf505a1fd5437830efbe019c289226fd34f0","archive":false},
-        {"kmi":"android17-6.18","name":"lkm-aarch64-android17-6.18_kernelsu.ko","size":481944,"sha256":"7fb235ec7cdf4441a83d4d116273c35f03fa326eed3153b0e722982eb9594cfe","archive":false}
+        {"kmi":"android14-6.1","name":"lkm-aarch64-android14-6.1_kernelsu.ko","size":682896,"sha256":"8d290bd5be581d137a0af49c88ce3472803a72782d9ed7bdbc0d56792178f6e1","archive":false},
+        {"kmi":"android15-6.6","name":"lkm-aarch64-android15-6.6_kernelsu.ko","size":561184,"sha256":"0e8f059c89602726dd8180d699b20526c747c58dbc97ebd62893905b56c5e3c6","archive":false},
+        {"kmi":"android16-6.12","name":"lkm-aarch64-android16-6.12_kernelsu.ko","size":646392,"sha256":"6fd7bb970ca0fa683d9eaef834de7b0436e8a7db7b6dc31068a9675aa0e117e1","archive":false},
+        {"kmi":"android17-6.18","name":"lkm-aarch64-android17-6.18_kernelsu.ko","size":612448,"sha256":"df3b52b27a46ce6fd9f555f5cdd9b2ca02b58c9eb0e05f47bcc2ddec5246b759","archive":false}
       ]
     },
     {

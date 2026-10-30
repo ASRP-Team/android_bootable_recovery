@@ -9,6 +9,8 @@
 #include "plugin_api/protocol.hpp"
 #include "plugin_api/session.hpp"
 #include "plugin_api/clipboard.hpp"
+#include "plugin_api/text_input.hpp"
+#include "phone_keyboard.hpp"
 #include "text_edit.hpp"
 #include "plugin_api/activity.hpp"
 #include "plugin_api/runtime.hpp"
@@ -34,6 +36,7 @@ using namespace widgets;
 std::mutex gSelectionMutex;
 std::string gSelectedPlugin;
 struct GenericScene;
+void CloseTextInput(GenericScene *scene, bool submit, bool notify = true);
 struct ViewBinding { GenericScene *scene = nullptr; };
 std::map<std::string, GenericScene *> gPluginRuntimes;
 
@@ -52,7 +55,7 @@ struct ButtonModel {
   bool tile = false;
 };
 
-enum class RowKind { kSection, kMetric, kProgress };
+enum class RowKind { kSection, kMetric, kProgress, kTextInput };
 
 struct RowModel {
   RowKind kind = RowKind::kMetric;
@@ -63,10 +66,15 @@ struct RowModel {
   lv_obj_t *value_label = nullptr;
   lv_obj_t *progress_bar = nullptr;
   uint32_t progress = 0;
+  uint32_t input_maximum = plugin_api::kMaxInputCharacters;
+  std::string placeholder;
 };
 
 struct GenericScene {
   bool desktop_open = false;
+  lv_obj_t *input_overlay = nullptr, *input_editor = nullptr, *input_keyboard = nullptr;
+  ViewBinding *input_binding = nullptr;
+  uint32_t input_id = 0;
   lv_obj_t *screen = nullptr;
   lv_obj_t *card = nullptr;
   lv_obj_t *content = nullptr;
@@ -105,6 +113,7 @@ struct GenericScene {
   void *context = nullptr;
 
   ~GenericScene() {
+    CloseTextInput(this, false, false);
     if (binding) binding->scene = nullptr;
     auto found = gPluginRuntimes.find(plugin.id);
     if (found != gPluginRuntimes.end() && found->second == this)
@@ -179,7 +188,8 @@ void MirrorModeCard(GenericScene *scene, int index, int x, int y, int width) {
 bool ModalVisible(lv_obj_t *screen) {
   for (uint32_t index = 0; index < lv_obj_get_child_count(screen); ++index) {
     auto *child = lv_obj_get_child(screen, static_cast<int32_t>(index));
-    if (lv_obj_get_user_data(child) == &kModalMarker &&
+    if ((lv_obj_get_user_data(child) == &kModalMarker ||
+         lv_obj_get_user_data(child) == &kPersistentModalMarker) &&
         !lv_obj_has_flag(child, LV_OBJ_FLAG_HIDDEN)) return true;
   }
   return false;
@@ -287,6 +297,140 @@ bool MetricFlagsValid(uint32_t flags) {
   return (flags & ~mask) == 0 && (tone == 0 || (tone & (tone - 1)) == 0);
 }
 
+RowModel *FindTextInput(GenericScene *scene, uint32_t id) {
+  for (auto &row : scene->rows)
+    if (row.kind == RowKind::kTextInput && row.id == id) return &row;
+  return nullptr;
+}
+
+void RefreshTextInput(RowModel &row) {
+  if (!row.value_label) return;
+  const std::string preview = row.value.empty() ? row.placeholder :
+      (row.flags & plugin_api::kInputPassword) ? std::string("????????") : row.value;
+  lv_label_set_text(row.value_label, preview.c_str());
+  lv_obj_set_style_text_color(row.value_label, row.value.empty() ? kMutedStrong : kText, 0);
+}
+
+void CloseTextInput(GenericScene *scene, bool submit, bool notify) {
+  if (!scene->input_overlay) return;
+  auto *row = FindTextInput(scene, scene->input_id);
+  std::string value = submit && scene->input_editor ? lv_textarea_get_text(scene->input_editor) : "";
+  if (submit && (!row || !plugin_api::InputTextValid(value, row->flags, row->input_maximum))) {
+    // Pasting must obey the same byte/character and mode rules as typing.
+    return;
+  }
+  const uint32_t id = scene->input_id;
+  auto *overlay = scene->input_overlay;
+  if (scene->input_binding) scene->input_binding->scene = nullptr;
+  scene->input_overlay = scene->input_editor = scene->input_keyboard = nullptr;
+  scene->input_binding = nullptr;
+  scene->input_id = 0;
+  if (submit && row) { row->value = value; RefreshTextInput(*row); }
+  if (notify && scene->session.Connected())
+    scene->session.Send(plugin_api::Kind::kTextInputResult, id,
+        submit ? plugin_api::InputCharacters(value) : 0,
+        submit ? plugin_api::kInputSubmitted : plugin_api::kInputCancelled,
+        nullptr, submit ? value.c_str() : nullptr);
+  lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_delete_async(overlay);
+}
+
+void OpenTextInput(GenericScene *scene, uint32_t id) {
+  auto *row = FindTextInput(scene, id);
+  if (!row || (row->flags & plugin_api::kInputDisabled) || scene->input_overlay ||
+      !scene->screen || scene->screen != lv_screen_active() || scene->page_pending ||
+      scene->operation_pending || scene->desktop_open || ModalVisible(scene->screen) ||
+      !scene->session.Connected()) return;
+  auto *overlay = lv_obj_create(scene->screen); Clear(overlay);
+  scene->input_overlay = overlay; scene->input_id = id;
+  scene->input_binding = new ViewBinding{scene};
+  lv_obj_set_user_data(overlay, &kPersistentModalMarker);
+  lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(overlay, LV_OPA_60, 0);
+  lv_obj_add_event_cb(overlay, [](lv_event_t *event) {
+    auto *binding = static_cast<ViewBinding *>(lv_event_get_user_data(event));
+    if (lv_event_get_code(event) == LV_EVENT_CANCEL && binding->scene)
+      CloseTextInput(binding->scene, false);
+    else if (lv_event_get_code(event) == LV_EVENT_DELETE) {
+      if (auto *scene = binding->scene) {
+        if (scene->session.Connected()) scene->session.Send(plugin_api::Kind::kTextInputResult,
+            scene->input_id, 0, plugin_api::kInputCancelled);
+        scene->input_overlay = scene->input_editor = scene->input_keyboard = nullptr;
+        scene->input_binding = nullptr; scene->input_id = 0;
+      }
+      delete binding;
+    }
+  }, LV_EVENT_ALL, scene->input_binding);
+  lv_obj_update_layout(overlay);
+  const int width = lv_obj_get_width(overlay) - 64;
+  const int height = std::min(Landscape(overlay) ? 1260 : 1660,
+      static_cast<int>(lv_obj_get_height(overlay)) - 96);
+  auto *sheet = lv_obj_create(overlay); Panel(sheet, 40, kMainSheet);
+  lv_obj_set_size(sheet, width, height);
+  lv_obj_align(sheet, LV_ALIGN_BOTTOM_MID, 0, -32);
+  auto *title = Label(sheet, row->title.c_str(), &lv_font_montserrat_40, kText);
+  lv_obj_set_pos(title, 32, 26); SingleLineLabel(title, width - 64, &lv_font_montserrat_40);
+  auto *caption = Label(sheet, scene->plugin.name.c_str(), &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(caption, 32, 82); SingleLineLabel(caption, width - 64, &lv_font_montserrat_24);
+  const bool multiline = row->flags & plugin_api::kInputMultiline;
+  const int input_height = multiline ? std::min(240, height / 4) : 112;
+  auto *input = TextArea(sheet); scene->input_editor = input;
+  lv_obj_set_pos(input, 32, 132); lv_obj_set_size(input, width - 64, input_height);
+  lv_obj_set_style_text_font(input, UiFont(&lv_font_montserrat_40), 0);
+  lv_obj_set_style_text_color(input, kText, 0);
+  lv_obj_set_style_bg_color(input, kMainPanel, 0);
+  lv_obj_set_style_bg_opa(input, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_all(input, 22, 0);
+  lv_obj_set_style_border_width(input, 2, 0);
+  lv_obj_set_style_border_color(input, kAccent, 0);
+  lv_textarea_set_one_line(input, !multiline);
+  lv_textarea_set_max_length(input, row->input_maximum);
+  if (row->flags & plugin_api::kInputNumber) lv_textarea_set_accepted_chars(input, "0123456789.-");
+  lv_textarea_set_password_mode(input, row->flags & plugin_api::kInputPassword);
+  if (!row->placeholder.empty()) lv_textarea_set_placeholder_text(input, row->placeholder.c_str());
+  lv_textarea_set_text(input, row->value.c_str());
+  auto *keyboard = lv_keyboard_create(sheet); scene->input_keyboard = keyboard;
+  phone_keyboard::Apply(keyboard);
+  if (row->flags & plugin_api::kInputNumber) lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_NUMBER);
+  lv_obj_set_align(keyboard, LV_ALIGN_TOP_LEFT);
+  const int keyboard_y = 164 + input_height;
+  lv_obj_set_pos(keyboard, 24, keyboard_y);
+  lv_obj_set_size(keyboard, width - 48, height - keyboard_y - 160);
+  lv_keyboard_set_textarea(keyboard, input);
+  auto *cancel = Button(sheet, "Cancel", [scene] { CloseTextInput(scene, false); });
+  lv_obj_set_pos(cancel, 32, height - 132); lv_obj_set_size(cancel, (width - 88) / 2, 100);
+  auto *done = Button(sheet, "Done", [scene] { CloseTextInput(scene, true); }, true);
+  lv_obj_set_pos(done, width / 2 + 12, height - 132); lv_obj_set_size(done, (width - 88) / 2, 100);
+  auto finish = [](lv_event_t *event) {
+    auto *scene = static_cast<GenericScene *>(lv_event_get_user_data(event));
+    if (lv_event_get_code(event) == LV_EVENT_READY) CloseTextInput(scene, true);
+    else if (lv_event_get_code(event) == LV_EVENT_CANCEL) CloseTextInput(scene, false);
+  };
+  lv_obj_add_event_cb(keyboard, finish, LV_EVENT_ALL, scene);
+  lv_obj_add_event_cb(input, finish, LV_EVENT_ALL, scene);
+  lv_obj_send_event(input, LV_EVENT_CLICKED, nullptr);
+}
+
+void RenderInputCard(GenericScene *scene, RowModel &row, int width, int y) {
+  auto *card = lv_button_create(scene->content); Panel(card, 28, kMainSheet);
+  Interactive(card, kMainSelected);
+  lv_obj_set_pos(card, 36, y); lv_obj_set_size(card, width, 168);
+  lv_obj_set_style_border_width(card, 1, 0);
+  lv_obj_set_style_border_color(card, kMainLine, 0);
+  lv_obj_set_style_border_opa(card, LV_OPA_40, 0);
+  auto *title = Label(card, row.title.c_str(), &lv_font_montserrat_32, kMutedStrong);
+  lv_obj_set_pos(title, 28, 22); SingleLineLabel(title, width - 120, &lv_font_montserrat_32);
+  row.value_label = Label(card, "", &lv_font_montserrat_40, kText);
+  lv_obj_set_pos(row.value_label, 28, 80);
+  SingleLineLabel(row.value_label, width - 120, &lv_font_montserrat_40);
+  RefreshTextInput(row);
+  auto *edit = Label(card, LV_SYMBOL_EDIT, &lv_font_montserrat_32, kAccent);
+  lv_obj_align(edit, LV_ALIGN_RIGHT_MID, -28, 0);
+  if (row.flags & plugin_api::kInputDisabled) lv_obj_add_state(card, LV_STATE_DISABLED);
+  OnClick(card, [scene, id = row.id] { OpenTextInput(scene, id); });
+}
+
 void RenderMetricPage(GenericScene *scene) {
   lv_obj_clean(scene->content);
   lv_obj_update_layout(scene->content);
@@ -325,6 +469,10 @@ void RenderMetricPage(GenericScene *scene) {
       lv_obj_set_style_text_letter_space(section, 2, 0);
       y += scene->readable ? 68 : 56;
       continue;
+    }
+    if (model.kind == RowKind::kTextInput) {
+      RenderInputCard(scene, model, std::max(400, content_width - 72), y);
+      y += 188; ++visible_index; continue;
     }
     if (model.kind == RowKind::kProgress) {
       const int row_width = std::max(400, content_width - 72);
@@ -572,7 +720,7 @@ void RequestOperation(GenericScene *scene,
                         "Permission denied by the AERA host.");
     return;
   }
-  if (scene->operation_pending) {
+  if (scene->operation_pending || scene->input_overlay) {
     scene->session.Send(plugin_api::Kind::kOperationResult,
                         message.request_id, 0, 0, nullptr,
                         "Another host operation is waiting for approval.");
@@ -609,7 +757,7 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
       if(!width&&!height){width=960;height=540;}
       if (!scene->screen || !scene->callback || scene->background ||
           !scene->session.Supports(plugin_api::kFeatureDesktop) ||
-          !message.request_id || scene->desktop_open || scene->page_pending ||
+          !message.request_id || scene->desktop_open || scene->input_overlay || scene->page_pending ||
           scene->operation_pending || !ValidDesktopResolution(width,height) ||
           !plugins::HasPermission(scene->plugin, "desktop-surface")) {
         scene->session.Send(plugin_api::Kind::kDesktopReady, message.request_id,
@@ -635,7 +783,42 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
       }
       break;
     }
+    case plugin_api::Kind::kAddTextInput: {
+      const uint32_t maximum = message.value ? message.value : plugin_api::kMaxInputCharacters;
+      if (!scene->session.Supports(plugin_api::kFeatureTextInput) || !scene->page_pending ||
+          !message.request_id || !message.title[0] || !plugin_api::InputFlagsValid(message.flags) ||
+          !plugin_api::InputTextValid(message.text, message.flags, maximum) ||
+          std::count_if(scene->rows.begin(), scene->rows.end(), [](const RowModel &row) {
+            return row.kind == RowKind::kTextInput;
+          }) >= plugin_api::kMaxTextInputs ||
+          std::any_of(scene->rows.begin(), scene->rows.end(), [&](const RowModel &row) {
+            return row.kind != RowKind::kSection && row.id == message.request_id;
+          })) {
+        SetStatus(scene, "Plugin sent an invalid text input"); scene->session.Close(); break;
+      }
+      RowModel row; row.kind = RowKind::kTextInput; row.id = message.request_id;
+      row.flags = message.flags; row.title = message.title; row.value = message.text;
+      row.input_maximum = maximum; scene->rows.push_back(std::move(row)); break;
+    }
+    case plugin_api::Kind::kUpdateTextInput:
+    case plugin_api::Kind::kTextInputPlaceholder: {
+      auto *row = FindTextInput(scene, message.request_id);
+      const bool placeholder = message.kind == plugin_api::Kind::kTextInputPlaceholder;
+      if (!scene->session.Supports(plugin_api::kFeatureTextInput) || !row ||
+          message.value || message.flags || message.title[0] ||
+          (placeholder ? !plugin_api::InputTextValid(message.text, 0, plugin_api::kMaxInputCharacters) :
+                         !plugin_api::InputTextValid(message.text, row->flags, row->input_maximum))) {
+        SetStatus(scene, "Plugin sent an invalid text input update"); scene->session.Close(); break;
+      }
+      if (scene->input_id == message.request_id) {
+        scene->session.Send(plugin_api::Kind::kTextInputResult, message.request_id, 0,
+            plugin_api::kInputError, nullptr, "The user is editing this field."); break;
+      }
+      if (placeholder) row->placeholder = message.text; else row->value = message.text;
+      RefreshTextInput(*row); break;
+    }
     case plugin_api::Kind::kBeginPage:
+      CloseTextInput(scene, false);
       scene->page_title = message.title;
       scene->page_body = message.text;
       scene->buttons.clear();
@@ -853,7 +1036,7 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
       if (!scene->session.Supports(plugin_api::kFeaturePackageReview)) {
         scene->session.Close(); break;
       }
-      if (scene->screen && !scene->operation_pending && !plugin_api::PluginStorageBusy() &&
+      if (scene->screen && !scene->operation_pending && !scene->input_overlay && !plugin_api::PluginStorageBusy() &&
           !message.value && !message.flags && !message.title[0] &&
           plugin_api::IsReviewablePackage(message.text))
         ReviewPackage(scene->screen, message.text, scene->callback, scene->context);
@@ -868,6 +1051,7 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
       RequestOperation(scene, message);
       break;
     case plugin_api::Kind::kClose:
+      CloseTextInput(scene, false, false);
       scene->session.Close();
       scene->process.Stop();
       scene->stopped = true;
@@ -881,6 +1065,7 @@ void HandleMessage(GenericScene *scene, const plugin_api::Message &message) {
 }
 
 void DetachGenericScene(GenericScene *scene) {
+  CloseTextInput(scene, false);
   scene->clipboard.Reset();
   if (scene->desktop_open) {
     ClosePluginDesktop();
@@ -917,6 +1102,7 @@ void StopGenericPluginRuntime(const std::string &plugin) {
   auto found = gPluginRuntimes.find(plugin);
   if (found == gPluginRuntimes.end()) return;
   auto *scene = found->second;
+  CloseTextInput(scene, false, false);
   if (scene->session.Connected()) scene->session.Send(plugin_api::Kind::kClose);
   scene->session.Close(); scene->process.Stop(); scene->stopped = true;
   scene->background = false; scene->cancel_started_ms = 0;
@@ -1076,6 +1262,7 @@ static void PollRuntime(GenericScene *scene) {
     for (const auto &message : scene->session.Poll())
       HandleMessage(scene, message);
     if (!scene->session.Connected()) {
+      CloseTextInput(scene, false, false);
       scene->clipboard.Reset();
       scene->process.Stop(); scene->stopped = true;
       plugin_api::RemoveActivity(scene->plugin.id);
@@ -1110,6 +1297,7 @@ static void PollRuntime(GenericScene *scene) {
       SetStatus(scene, "Operation cancelled");
     }
     if (!scene->stopped && !scene->process.Running()) {
+      CloseTextInput(scene, false, false);
       scene->stopped = true;
       scene->session.Close();
       plugin_api::RemoveActivity(scene->plugin.id);

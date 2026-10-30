@@ -23,10 +23,11 @@ enum Features : uint32_t {
   kFeatureDesktop = 1U << 7,
   kFeatureDesktopResolution = 1U << 8,
   kFeatureClipboard = 1U << 9,
+  kFeatureTextInput = 1U << 10,
 };
 constexpr uint32_t kOptionalFeatures = kFeatureBackground | kFeatureActivities |
     kFeatureRichPresentation | kFeaturePackageReview | kFeatureReadablePresentation |
-    kFeatureDesktop | kFeatureDesktopResolution | kFeatureClipboard;
+    kFeatureDesktop | kFeatureDesktopResolution | kFeatureClipboard | kFeatureTextInput;
 constexpr uint32_t kFeatureRequestMagic = 0xA2E20000U;
 
 enum class Kind : uint32_t {
@@ -54,6 +55,9 @@ enum class Kind : uint32_t {
   kGetClipboard = 22,
   kSetClipboard = 23,
   kClipboardChunk = 24,
+  kAddTextInput = 25,
+  kUpdateTextInput = 26,
+  kTextInputPlaceholder = 27,
   kHelloAck = 64,
   kAction,
   kLifecycle,
@@ -64,6 +68,22 @@ enum class Kind : uint32_t {
   kActivityFileResult,
   kDesktopReady = 72,
   kClipboardResult = 73,
+  kTextInputResult = 74,
+};
+
+constexpr uint32_t kMaxTextInputs = 16;
+// At most four UTF-8 bytes per code point; results fit one wire packet.
+constexpr uint32_t kMaxInputCharacters = 255;
+enum TextInputFlags : uint32_t {
+  kInputPassword = 1U << 0,
+  kInputNumber = 1U << 1,
+  kInputMultiline = 1U << 2,
+  kInputDisabled = 1U << 3,
+};
+enum TextInputResultFlags : uint32_t {
+  kInputSubmitted = 1U << 0,
+  kInputCancelled = 1U << 1,
+  kInputError = 1U << 2,
 };
 
 constexpr uint32_t kMaxClipboardBytes = 1024U * 1024U;
@@ -133,10 +153,10 @@ inline bool StringsValid(const Message &message) {
          memchr(message.text, '\0', sizeof(message.text)) != nullptr;
 }
 inline bool WorkerKind(Kind kind) {
-  return kind >= Kind::kHello && kind <= Kind::kClipboardChunk;
+  return kind >= Kind::kHello && kind <= Kind::kTextInputPlaceholder;
 }
 inline bool HostKind(Kind kind) {
-  return kind >= Kind::kHelloAck && kind <= Kind::kClipboardResult;
+  return kind >= Kind::kHelloAck && kind <= Kind::kTextInputResult;
 }
 inline bool Valid(const Message &message, bool from_worker) {
   return message.magic == kMagic && message.version == kProtocolVersion &&

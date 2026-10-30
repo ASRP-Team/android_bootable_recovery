@@ -171,6 +171,63 @@ void TestPluginRuntime(lv_obj_t *host_screen) {
   lv_textarea_set_text(editor, ""); assert(text_edit::Paste(editor));
   assert(std::string(lv_textarea_get_text(editor)) == "Plugin into editor");
   lv_obj_delete(editor);
+  // Native fields share AERA editing, but only commit confirmed values.
+  Message input_begin; input_begin.kind = Kind::kBeginPage;
+  snprintf(input_begin.title, sizeof(input_begin.title), "Native inputs");
+  HandleMessage(scene, input_begin);
+  for (uint32_t id = 101; id <= 104; ++id) {
+    Message field; field.kind = Kind::kAddTextInput; field.request_id = id;
+    field.value = id == 103 ? 12 : 64;
+    field.flags = id == 102 ? kInputPassword : id == 103 ? kInputNumber :
+                  id == 104 ? kInputMultiline : 0;
+    snprintf(field.title, sizeof(field.title), "Field %u", id);
+    snprintf(field.text, sizeof(field.text), "%s", id == 102 ? "private-password" : "");
+    HandleMessage(scene, field);
+  }
+  Message placeholder; placeholder.kind = Kind::kTextInputPlaceholder; placeholder.request_id = 101;
+  snprintf(placeholder.text, sizeof(placeholder.text), "Type here"); HandleMessage(scene, placeholder);
+  Message input_commit; input_commit.kind = Kind::kCommitPage; HandleMessage(scene, input_commit);
+  auto *field = FindTextInput(scene, 101);
+  assert(field && field->value_label && !strcmp(lv_label_get_text(field->value_label), "Type here"));
+  assert(std::string(lv_label_get_text(FindTextInput(scene, 102)->value_label)) != "private-password");
+  OpenTextInput(scene, 101);
+  assert(scene->input_editor && scene->input_keyboard && ModalVisible(page));
+  lv_obj_update_layout(scene->input_overlay);
+  assert(lv_obj_get_height(scene->input_keyboard) > 300);
+  lv_textarea_set_text(scene->input_editor, "replace me");
+  text_edit::SetClipboardText("Gr??e aus AERA");
+  text_edit::SelectAll(scene->input_editor); assert(text_edit::Paste(scene->input_editor));
+  CloseTextInput(scene, true);
+  auto entered = receive(peer);
+  assert(entered.kind == Kind::kTextInputResult && entered.request_id == 101 &&
+      entered.flags == kInputSubmitted && std::string(entered.text) == "Gr??e aus AERA");
+  assert(field->value == entered.text && !scene->input_overlay);
+  OpenTextInput(scene, 101);
+  lv_textarea_set_text(scene->input_editor, "discard this");
+  assert(widgets::DismissModal(page));
+  auto cancelled = receive(peer);
+  assert(cancelled.flags == kInputCancelled && !cancelled.text[0]);
+  assert(field->value == "Gr??e aus AERA");
+  OpenTextInput(scene, 102); assert(lv_textarea_get_password_mode(scene->input_editor));
+  CloseTextInput(scene, false); assert(receive(peer).flags == kInputCancelled);
+  OpenTextInput(scene, 103);
+  assert(lv_keyboard_get_mode(scene->input_keyboard) == LV_KEYBOARD_MODE_NUMBER);
+  lv_textarea_add_text(scene->input_editor, "a12.5x");
+  assert(!strcmp(lv_textarea_get_text(scene->input_editor), "12.5"));
+  CloseTextInput(scene, true); assert(std::string(receive(peer).text) == "12.5");
+  OpenTextInput(scene, 104); assert(!lv_textarea_get_one_line(scene->input_editor));
+  lv_textarea_set_text(scene->input_editor, "first\nsecond");
+  CloseTextInput(scene, true); assert(std::string(receive(peer).text) == "first\nsecond");
+  Message update; update.kind = Kind::kUpdateTextInput; update.request_id = 101;
+  snprintf(update.text, sizeof(update.text), "From plugin"); HandleMessage(scene, update);
+  assert(field->value == "From plugin");
+  OpenTextInput(scene, 101); HandleMessage(scene, update);
+  assert(receive(peer).flags == kInputError && scene->input_editor);
+  // A new worker page cancels editing before replacing its field model.
+  HandleMessage(scene, input_begin); assert(receive(peer).flags == kInputCancelled);
+  assert(!scene->input_overlay && scene->rows.empty());
+  HandleMessage(scene, input_commit);
+  lv_tick_inc(20); lv_timer_handler();
   check_action_layout(scene, false, true);
   check_action_layout(scene, true, false);
   check_action_layout(scene, true, true);

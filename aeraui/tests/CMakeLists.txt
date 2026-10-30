@@ -490,3 +490,8 @@ add_executable(public_ip_test public_ip_test.cpp)
 target_compile_options(public_ip_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(public_ip_test PRIVATE resolv Threads::Threads)
 add_test(NAME mobile_public_ipv4_parsing COMMAND public_ip_test)
+
+add_executable(plugin_text_input_test plugin_text_input_test.cpp)
+target_include_directories(plugin_text_input_test PRIVATE ../features)
+target_compile_options(plugin_text_input_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME plugin_native_text_validation COMMAND plugin_text_input_test)

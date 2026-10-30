@@ -231,3 +231,41 @@ runtime is removed when the command exits. Persistent state must live outside
 that runtime. Commands run with normal recovery shell privileges; declaring a
 command does not start a background process or bypass the invoked tool's own
 approval rules.
+
+## Optional native text inputs
+
+Request `kFeatureTextInput` (bit 10) in the HELLO feature mask and check the ACK.
+Old plugins receive the same ACK as before; new plugins must provide a fallback
+page when an older recovery does not advertise this feature. Packet size and
+protocol version remain unchanged. No additional permission is needed beyond
+`display` and `touch-input`.
+
+Between BEGIN_PAGE and COMMIT_PAGE, send ADD_TEXT_INPUT (kind 25) with a unique
+nonzero field ID in request_id, label in title, initial UTF-8 value in text and
+maximum Unicode code points in value (1..255; zero selects 255). A page may have
+16 fields. Field IDs share the metric/progress ID namespace. Flags are
+`kInputPassword` (1), `kInputNumber` (2), `kInputMultiline` (4), and
+`kInputDisabled` (8). Multiline cannot be combined with password or number.
+Number mode accepts digits, a decimal point and minus; the plugin validates the
+meaning of the completed value. Control characters are rejected except LF in
+multiline fields. The 255-code-point maximum guarantees that even four-byte
+UTF-8 characters fit a single result packet without truncation.
+
+The host renders a native input card. Tapping it opens AERA's themed editor and
+keyboard, including configured keyboard layout, cursor, selection and paste.
+Password previews are masked and native copy/cut protections still apply.
+Send TEXT_INPUT_PLACEHOLDER (27) with the field ID and placeholder in text;
+send UPDATE_TEXT_INPUT (26) to replace a value. Both require zero value/flags
+and an empty title. Updates are allowed while assembling or displaying a page.
+An update targeting the field currently being edited returns kInputError and
+does not overwrite the user's draft.
+
+On Done/keyboard confirmation, TEXT_INPUT_RESULT (74) echoes the field ID,
+sets flags=kInputSubmitted (1), includes the confirmed text and its code-point
+count in value, and updates the card. Cancel/Back returns kInputCancelled (2)
+with no text and preserves the original value. Error uses kInputError (4) with
+a reason in text. No keystroke drafts are sent to the plugin. A replacement
+page or a detached view cancels an open editor; stopping/crashing the runtime
+closes it. Background workers cannot open the keyboard or read the draft.
+Field values are retained with a live background runtime, but persistence
+across process restarts remains the plugin's responsibility.
