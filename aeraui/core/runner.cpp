@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <sched.h>
 #include <sys/stat.h>
+#include <sys/system_properties.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -261,6 +262,24 @@ void CaptureHardwareScreenshot(Engine& engine) {
         }
     }
     engine.ShowScreenshotResult(saved);
+}
+
+// Lets `adb shell setprop aera.screenshot 1` or a plain
+// `adb shell touch /tmp/aera-screenshot.request` take the same screenshot as
+// the power + volume-down chord. Requests are consumed so each adb call saves
+// exactly one PNG.
+bool ConsumeAdbScreenshotRequest() {
+    char value[PROP_VALUE_MAX] = {};
+    if (__system_property_get("aera.screenshot", value) > 0 &&
+        value[0] == '1') {
+        __system_property_set("aera.screenshot", "0");
+        return true;
+    }
+    if (access("/tmp/aera-screenshot.request", F_OK) == 0) {
+        unlink("/tmp/aera-screenshot.request");
+        return true;
+    }
+    return false;
 }
 
 void AdjustVolume(Engine& engine, InteractionBoost& performance,
@@ -535,8 +554,9 @@ RunResult RunLoop(bool fastboot_mode = false,
         // while an input event is being dispatched. Capture only here, after
         // LVGL has completed and presented a frame; direct capture from the
         // key callback could restart recovery on the Adreno/KMS backend.
+        const bool adb_screenshot = ConsumeAdbScreenshotRequest();
         const bool lock_screenshot = engine.TakeScreenshotRequest();
-        if (hardware.screenshot_pending || lock_screenshot) {
+        if (hardware.screenshot_pending || lock_screenshot || adb_screenshot) {
             hardware.screenshot_pending = false;
             CaptureHardwareScreenshot(engine);
         }
