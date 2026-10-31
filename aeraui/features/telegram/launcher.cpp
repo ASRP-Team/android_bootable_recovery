@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "launcher.hpp"
+#include "session_storage.hpp"
 #include "../../core/operation_affinity.hpp"
 
 #include <cerrno>
@@ -42,6 +43,20 @@ bool PrepareState() {
   return ok;
 }
 }  // namespace
+
+bool ResetLocalSession(std::string &error) {
+  int fd = open("/data", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  for (const char *name : {"recovery", "AERA", "telegram"}) {
+    if (fd < 0) break;
+    const int next = openat(fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    close(fd);
+    fd = next;
+  }
+  const bool ok = fd >= 0 && ResetLocalSessionAt(fd);
+  if (fd >= 0) close(fd);
+  error = ok ? "" : "Could not reset the local Telegram session.";
+  return ok;
+}
 
 bool Process::Start(const std::string &runtime, int &control_fd,
                     std::string &error) {

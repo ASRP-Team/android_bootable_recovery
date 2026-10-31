@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cctype>
 #include <climits>
 #include <cmath>
@@ -97,6 +98,15 @@ struct TelegramScene {
   bool history_loading = false;
   bool using_cached_vault = false;
   bool landscape = false;
+  bool session_settings = false;
+  bool changing_vault_password = false;
+  bool change_after_unlock = false;
+  bool resetting_session = false;
+  uint32_t session_features = 0;
+  std::atomic<bool> reset_done{false};
+  bool reset_ok = false;
+  std::string reset_error;
+  std::string pending_new_vault_password;
   std::string pending_vault_password;
   std::vector<std::unique_ptr<AvatarImage>> avatars;
   std::map<std::string, std::vector<AvatarView>> avatar_views;
@@ -122,6 +132,7 @@ struct TelegramScene {
     process.Stop();
     web::RemoveRuntime(preparation.directory);
     SecureClear(pending_vault_password);
+    SecureClear(pending_new_vault_password);
   }
 
   bool Send(telegram::Kind kind, const std::string &text = {},
@@ -134,11 +145,17 @@ struct TelegramScene {
     memcpy(message.text, text.data(), text.size());
     const ssize_t count = send(control, &message, sizeof(message),
                                MSG_DONTWAIT | MSG_NOSIGNAL);
+    std::fill(std::begin(message.text), std::end(message.text), '\0');
     return count == static_cast<ssize_t>(sizeof(message));
   }
 };
 
 void ClearComposerContext(TelegramScene *scene);
+void ShowChats(TelegramScene *scene);
+void ShowSessionSettings(TelegramScene *scene);
+void ShowVaultPasswordChange(TelegramScene *scene, const char *error = nullptr);
+void ConfirmSessionReset(TelegramScene *scene);
+void Launch(TelegramScene *scene);
 
 lv_obj_t *Input(lv_obj_t *parent, int y, const char *placeholder,
                 bool password = false) {
@@ -445,6 +462,12 @@ void ShowStatus(TelegramScene *scene, const char *title, const char *detail) {
   scene->photo_message_contexts.clear();
   scene->message_statuses.clear();
   scene->message_status_views.clear();
+  scene->list = nullptr;
+  scene->keyboard = nullptr;
+  scene->composer = nullptr;
+  scene->keyboard_visible = false;
+  scene->composer_context = nullptr;
+  scene->chat_id = 0;
   scene->title = Label(scene->surface, title, &lv_font_montserrat_48, kText);
   lv_obj_set_width(scene->title, 1180);
   lv_obj_set_style_text_align(scene->title, LV_TEXT_ALIGN_CENTER, 0);
@@ -570,7 +593,7 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
 
   if (vault) {
     const int card_width = scene->landscape ? 1408 : 1312;
-    const int card_height = new_vault ? 708 : 500;
+    const int card_height = new_vault ? 708 : 740;
     auto *vault_card = lv_obj_create(scene->surface);
     Panel(vault_card, 40, kMainSheet);
     lv_obj_set_pos(vault_card, scene->landscape ? 64 : 64,
@@ -639,6 +662,18 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
         }, true);
     lv_obj_set_pos(submit, 42, new_vault ? 536 : 326);
     lv_obj_set_size(submit, card_width - 84, 132);
+    if (!new_vault) {
+      auto *change = Button(vault_card, "Change vault password", [scene] {
+        ShowVaultPasswordChange(scene);
+      });
+      lv_obj_set_pos(change, 42, 482);
+      lv_obj_set_size(change, card_width - 84, 96);
+      auto *forgot = Button(vault_card, "Forgot password?", [scene] {
+        ConfirmSessionReset(scene);
+      });
+      lv_obj_set_pos(forgot, 42, 594);
+      lv_obj_set_size(forgot, card_width - 84, 96);
+    }
 
     auto *keyboard = lv_keyboard_create(scene->surface);
     StyleKeyboard(keyboard);
@@ -727,6 +762,7 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
                 "API ID/hash are available at my.telegram.org. Use at least 8 characters for the vault password.");
             return;
           }
+          scene->pending_vault_password = vault;
           scene->Send(telegram::Kind::kConfigure, hash + "\n" + vault, api_id);
           lv_textarea_set_text(third, "");
           ShowStatus(scene, "Opening encrypted session",
@@ -748,6 +784,217 @@ void ShowAuth(TelegramScene *scene, telegram::AuthState state,
       }, true);
   lv_obj_set_pos(submit, 776, configure ? 1134 : 700);
   lv_obj_set_size(submit, 494, 118);
+}
+
+// Management is a separate card-based page, never interleaved with chats.
+void SessionPage(TelegramScene *scene, const char *title, const char *detail) {
+  ShowStatus(scene, title, detail);
+  scene->session_settings = true;
+  if (scene->progress) lv_obj_delete(scene->progress);
+  scene->progress = nullptr;
+  lv_obj_set_user_data(scene->surface, &kPersistentModalMarker);
+  lv_obj_set_pos(scene->title, 174, 30);
+  lv_obj_set_size(scene->title, scene->landscape ? 1160 : 1080, 76);
+  lv_label_set_long_mode(scene->title, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_text_align(scene->title, LV_TEXT_ALIGN_LEFT, 0);
+  lv_obj_set_pos(scene->detail, 64, 145);
+  lv_obj_set_width(scene->detail, scene->landscape ? 1408 : 1312);
+  lv_obj_set_style_text_align(scene->detail, LV_TEXT_ALIGN_LEFT, 0);
+  auto *back = Button(scene->surface, LV_SYMBOL_LEFT, [scene] {
+    if (scene->changing_vault_password) return;
+    scene->change_after_unlock = false;
+    if (scene->auth == telegram::AuthState::kReady) ShowChats(scene);
+    else ShowAuth(scene, telegram::AuthState::kNeedVault, "");
+  });
+  lv_obj_set_pos(back, 24, 20);
+  lv_obj_set_size(back, 120, 112);
+}
+
+void ShowNewVaultPassword(TelegramScene *scene, const char *error = nullptr) {
+  if (!(scene->session_features & telegram::kFeatureVaultPasswordChange)) {
+    Sheet(scene->screen, "Update Telegram plugin",
+          "Update the Telegram plugin to change the local vault password.");
+    return;
+  }
+  SessionPage(scene, "Change vault password",
+              error ? error : "Your Telegram account password will not change.");
+  const int width = scene->landscape ? 1408 : 1312;
+  auto *card = lv_obj_create(scene->surface);
+  Panel(card, 40, kMainSheet);
+  lv_obj_set_pos(card, 64, 245);
+  lv_obj_set_size(card, width, 708);
+  auto *label = Label(card, "New password", &lv_font_montserrat_24, kText);
+  lv_obj_set_pos(label, 42, 50);
+  auto *first = Input(card, 100, "Use at least 8 characters", true);
+  lv_obj_set_width(first, 1044);
+  PasswordToggle(card, first, 100);
+  auto *confirm_label = Label(card, "Confirm password", &lv_font_montserrat_24, kText);
+  lv_obj_set_pos(confirm_label, 42, 288);
+  auto *second = Input(card, 338, "Type it again", true);
+  lv_obj_set_width(second, 1044);
+  PasswordToggle(card, second, 338);
+  auto *keyboard = lv_keyboard_create(scene->surface);
+  StyleKeyboard(keyboard);
+  if (scene->landscape) {
+    lv_obj_set_pos(keyboard, 1540, (lv_obj_get_height(scene->surface) - 900) / 2);
+    lv_obj_set_size(keyboard, 1564, 900);
+  } else {
+    lv_obj_set_pos(keyboard, 0, lv_obj_get_height(scene->surface) - 790);
+    lv_obj_set_size(keyboard, lv_obj_get_width(scene->surface), 790);
+  }
+  BindKeyboard(first, keyboard);
+  BindKeyboard(second, keyboard);
+  lv_keyboard_set_textarea(keyboard, first);
+  lv_obj_add_state(first, LV_STATE_FOCUSED);
+  auto *save = Button(card, "Change password", [scene, first, second, keyboard] {
+    if (scene->changing_vault_password) return;
+    std::string value = lv_textarea_get_text(first);
+    if (value.size() < 8 || value.size() >= telegram::kTextBytes) {
+      SecureClear(value);
+      i18n::BindLabel(scene->detail, "Use at least 8 characters for the vault password.");
+      return;
+    }
+    if (value != lv_textarea_get_text(second)) {
+      SecureClear(value);
+      i18n::BindLabel(scene->detail, "The two passwords do not match. Please try again.");
+      return;
+    }
+    scene->pending_new_vault_password = value;
+    const bool sent = scene->Send(telegram::Kind::kChangeVaultPassword, value);
+    SecureClear(value);
+    if (!sent) {
+      SecureClear(scene->pending_new_vault_password);
+      i18n::BindLabel(scene->detail, "Could not change the vault password.");
+      return;
+    }
+    scene->changing_vault_password = true;
+    lv_textarea_set_text(first, "");
+    lv_textarea_set_text(second, "");
+    lv_obj_add_state(first, LV_STATE_DISABLED);
+    lv_obj_add_state(second, LV_STATE_DISABLED);
+    lv_obj_add_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+    i18n::BindLabel(scene->detail, "Changing vault password...");
+  }, true);
+  lv_obj_set_pos(save, 42, 536);
+  lv_obj_set_size(save, width - 84, 132);
+}
+
+void ShowVaultPasswordChange(TelegramScene *scene, const char *error) {
+  if (!(scene->session_features & telegram::kFeatureVaultPasswordChange)) {
+    Sheet(scene->screen, "Update Telegram plugin",
+          "Update the Telegram plugin to change the local vault password.");
+    return;
+  }
+  SessionPage(scene, "Current vault password",
+              error ? error : "Enter your current password before choosing a new one.");
+  const int width = scene->landscape ? 1408 : 1312;
+  auto *card = lv_obj_create(scene->surface);
+  Panel(card, 40, kMainSheet);
+  lv_obj_set_pos(card, 64, 265);
+  lv_obj_set_size(card, width, 430);
+  auto *input = Input(card, 42, "Enter your password", true);
+  lv_obj_set_width(input, 1044);
+  PasswordToggle(card, input, 42);
+  auto *keyboard = lv_keyboard_create(scene->surface);
+  StyleKeyboard(keyboard);
+  if (scene->landscape) {
+    lv_obj_set_pos(keyboard, 1540, (lv_obj_get_height(scene->surface) - 900) / 2);
+    lv_obj_set_size(keyboard, 1564, 900);
+  } else {
+    lv_obj_set_pos(keyboard, 0, lv_obj_get_height(scene->surface) - 790);
+    lv_obj_set_size(keyboard, lv_obj_get_width(scene->surface), 790);
+  }
+  BindKeyboard(input, keyboard);
+  lv_keyboard_set_textarea(keyboard, input);
+  lv_obj_add_state(input, LV_STATE_FOCUSED);
+  auto *proceed = Button(card, "Continue", [scene, input] {
+    std::string value = lv_textarea_get_text(input);
+    if (value.empty()) return;
+    if (scene->auth == telegram::AuthState::kReady) {
+      // The trusted host already holds the successfully used unlock key for
+      // this boot. Verify it again without writing another plaintext copy.
+      size_t difference = value.size() ^ g_boot_vault_password.size();
+      for (size_t i = 0; i < value.size(); ++i)
+        difference |= static_cast<unsigned char>(value[i]) ^
+            static_cast<unsigned char>(i < g_boot_vault_password.size()
+                ? g_boot_vault_password[i] : 0);
+      SecureClear(value);
+      if (g_boot_vault_password.empty() || difference != 0) {
+        i18n::BindLabel(scene->detail, "Incorrect vault password.");
+        return;
+      }
+      ShowNewVaultPassword(scene);
+      return;
+    }
+    scene->pending_vault_password = value;
+    scene->change_after_unlock = true;
+    const bool sent = scene->Send(telegram::Kind::kConfigure, value, 0);
+    SecureClear(value);
+    if (!sent) {
+      scene->change_after_unlock = false;
+      SecureClear(scene->pending_vault_password);
+      i18n::BindLabel(scene->detail, "Could not unlock the Telegram vault.");
+      return;
+    }
+    lv_textarea_set_text(input, "");
+    ShowStatus(scene, "Opening encrypted session", "Checking the current vault password.");
+  }, true);
+  lv_obj_set_pos(proceed, 42, 248);
+  lv_obj_set_size(proceed, width - 84, 132);
+}
+
+void ConfirmSessionReset(TelegramScene *scene) {
+  if (scene->resetting_session || scene->changing_vault_password) return;
+  Sheet(scene->screen, "Reset local Telegram session?",
+        "This removes the encrypted local session, cached messages and secret chats on this device. You must sign in again. Your Telegram account, cloud chats and saved downloads are kept.",
+        [scene] {
+    if (scene->resetting_session || scene->changing_vault_password) return;
+    scene->resetting_session = true;
+    scene->session_settings = false;
+    scene->reset_done.store(false);
+    SecureClear(g_boot_vault_password);
+    SecureClear(scene->pending_vault_password);
+    SecureClear(scene->pending_new_vault_password);
+    scene->Send(telegram::Kind::kClose);
+    if (scene->control >= 0) { close(scene->control); scene->control = -1; }
+    ShowStatus(scene, "Resetting local session...", "Closing Telegram and removing its local data.");
+    if (scene->worker.joinable()) scene->worker.join();
+    scene->worker = std::thread([scene] {
+      // Allow TDLib to close its database before the supervisor is stopped.
+      for (int i = 0; i < 100 && scene->process.Running(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+      scene->process.Stop();
+      scene->reset_ok = telegram::ResetLocalSession(scene->reset_error);
+      scene->reset_done.store(true, std::memory_order_release);
+    });
+  }, 0, false, SheetPresentation::kStandard, "Swipe to reset");
+}
+
+void ShowSessionSettings(TelegramScene *scene) {
+  SessionPage(scene, "Local session", "Manage the encrypted Telegram data stored by AERA.");
+  auto *card = lv_obj_create(scene->surface);
+  Panel(card, 40, kMainSheet);
+  lv_obj_set_pos(card, 64, 265);
+  const int width = scene->landscape ? 1408 : 1312;
+  lv_obj_set_size(card, width, 560);
+  auto *password = Button(card, "Change vault password", [scene] {
+    ShowVaultPasswordChange(scene);
+  }, true);
+  lv_obj_set_pos(password, 40, 40);
+  lv_obj_set_size(password, width - 80, 132);
+  const bool supported = (scene->session_features & telegram::kFeatureVaultPasswordChange) != 0;
+  auto *hint = Label(card, supported ? "Keep this session and choose a new password." :
+                      "Update the Telegram plugin to change the local vault password.",
+                      &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(hint, 52, 194);
+  lv_obj_set_width(hint, width - 104);
+  auto *reset = Button(card, "Reset local session", [scene] { ConfirmSessionReset(scene); });
+  lv_obj_set_pos(reset, 40, 300);
+  lv_obj_set_size(reset, width - 80, 132);
+  auto *warning = Label(card, "Remove local data and sign in again.",
+                        &lv_font_montserrat_24, kMutedStrong);
+  lv_obj_set_pos(warning, 52, 454);
+  lv_obj_set_width(warning, width - 104);
 }
 
 void ShowChats(TelegramScene *scene);
@@ -1379,6 +1626,9 @@ void AddChat(TelegramScene *scene, const telegram::Message &message) {
 }
 
 void ShowChats(TelegramScene *scene) {
+  scene->auth = telegram::AuthState::kReady;
+  scene->existing_vault = true;
+  scene->session_settings = false;
   lv_obj_clean(scene->surface);
   scene->avatars.clear();
   scene->avatar_views.clear();
@@ -1402,7 +1652,12 @@ void ShowChats(TelegramScene *scene) {
   lv_obj_set_pos(scene->detail, 174, 88);
   scene->progress = nullptr;
   auto *status = Kicker(scene->surface, "AERA TELEGRAM", kCyan);
-  lv_obj_align(status, LV_ALIGN_TOP_RIGHT, -32, 48);
+  lv_obj_align(status, LV_ALIGN_TOP_RIGHT, -190, 48);
+  auto *settings = Button(scene->surface, LV_SYMBOL_SETTINGS, [scene] {
+    ShowSessionSettings(scene);
+  });
+  lv_obj_set_pos(settings, lv_obj_get_width(scene->surface) - 152, 20);
+  lv_obj_set_size(settings, 120, 112);
   scene->list = lv_obj_create(scene->surface);
   Clear(scene->list);
   lv_obj_set_pos(scene->list, 16, 170);
@@ -1596,6 +1851,21 @@ void AddAttachment(TelegramScene *scene, const telegram::Message &message) {
 }
 
 void Poll(TelegramScene *scene) {
+  if (scene->resetting_session) {
+    if (!scene->reset_done.load(std::memory_order_acquire)) return;
+    if (scene->worker.joinable()) scene->worker.join();
+    scene->resetting_session = false;
+    if (!scene->reset_ok) {
+      ShowStatus(scene, "Could not reset local session", scene->reset_error.c_str());
+      return;
+    }
+    scene->existing_vault = false;
+    scene->using_cached_vault = false;
+    scene->session_features = 0;
+    scene->launched = false;
+    Launch(scene);
+    return;
+  }
   for (int i = 0; i < 24 && scene->control >= 0; ++i) {
     telegram::Message message;
     const ssize_t count = recv(scene->control, &message, sizeof(message),
@@ -1608,8 +1878,13 @@ void Poll(TelegramScene *scene) {
       ShowStatus(scene, "Telegram stopped", "The isolated runtime closed unexpectedly.");
       return;
     }
+    if (scene->session_settings && message.kind != telegram::Kind::kState &&
+        message.kind != telegram::Kind::kError &&
+        message.kind != telegram::Kind::kVaultPasswordResult) continue;
     if (message.kind == telegram::Kind::kState) {
       const auto state = static_cast<telegram::AuthState>(message.value);
+      scene->session_features = static_cast<uint32_t>(message.secondary) &
+          telegram::kFeatureVaultPasswordChange;
       if (state == telegram::AuthState::kReady) {
         if (!scene->pending_vault_password.empty()) {
           SecureClear(g_boot_vault_password);
@@ -1617,7 +1892,12 @@ void Poll(TelegramScene *scene) {
           SecureClear(scene->pending_vault_password);
         }
         scene->using_cached_vault = false;
-        ShowChats(scene);
+        scene->auth = telegram::AuthState::kReady;
+        scene->existing_vault = true;
+        if (scene->change_after_unlock) {
+          scene->change_after_unlock = false;
+          ShowNewVaultPassword(scene);
+        } else ShowChats(scene);
       } else if (state == telegram::AuthState::kNeedVault &&
                  !g_boot_vault_password.empty() &&
                  !scene->using_cached_vault) {
@@ -1641,12 +1921,29 @@ void Poll(TelegramScene *scene) {
         }
         ShowAuth(scene, state, message.text);
       }
+    } else if (message.kind == telegram::Kind::kVaultPasswordResult) {
+      if (!scene->changing_vault_password) continue;
+      scene->changing_vault_password = false;
+      if (message.value == 1) {
+        SecureClear(g_boot_vault_password);
+        g_boot_vault_password = scene->pending_new_vault_password;
+      }
+      SecureClear(scene->pending_new_vault_password);
+      if (message.value == 1) {
+        ShowSessionSettings(scene);
+        i18n::BindLabel(scene->detail, "Vault password changed.");
+      } else {
+        ShowNewVaultPassword(scene, "Could not change the vault password.");
+      }
     } else if (message.kind == telegram::Kind::kError) {
       if (!scene->pending_vault_password.empty()) {
         if (scene->using_cached_vault) SecureClear(g_boot_vault_password);
         SecureClear(scene->pending_vault_password);
         scene->using_cached_vault = false;
-        ShowAuth(scene, telegram::AuthState::kNeedVault, message.text);
+        if (scene->change_after_unlock) {
+          scene->change_after_unlock = false;
+          ShowVaultPasswordChange(scene, "Incorrect vault password.");
+        } else ShowAuth(scene, telegram::AuthState::kNeedVault, message.text);
       } else if (scene->detail) {
         i18n::BindLabel(scene->detail, message.text);
       }
@@ -1754,6 +2051,33 @@ void Launch(TelegramScene *scene) {
 }
 }  // namespace
 
+#ifdef AERA_TELEGRAM_UI_TEST
+// Isolated host fixture: no runtime, network or persistent account is opened.
+void BuildTelegramSessionTestScene(lv_obj_t *screen, bool supported, bool locked,
+                                   int control) {
+  auto *scene = new TelegramScene;
+  scene->screen = screen;
+  scene->landscape = lv_obj_get_width(screen) > lv_obj_get_height(screen);
+  scene->existing_vault = true;
+  scene->control = control;
+  scene->session_features = supported ? telegram::kFeatureVaultPasswordChange : 0;
+  g_boot_vault_password = locked ? "" : "old-password";
+  lv_obj_add_event_cb(screen, [](lv_event_t *e) {
+    delete static_cast<TelegramScene *>(lv_event_get_user_data(e));
+  }, LV_EVENT_DELETE, scene);
+  scene->surface = lv_obj_create(screen);
+  Clear(scene->surface);
+  lv_obj_set_style_bg_color(scene->surface, kMainCanvas, 0);
+  lv_obj_set_style_bg_opa(scene->surface, LV_OPA_COVER, 0);
+  lv_obj_set_size(scene->surface, lv_obj_get_width(screen), lv_obj_get_height(screen));
+  if (locked) ShowAuth(scene, telegram::AuthState::kNeedVault, "");
+  else ShowChats(scene);
+  scene->timer = lv_timer_create([](lv_timer_t *timer) {
+    Poll(static_cast<TelegramScene *>(lv_timer_get_user_data(timer)));
+  }, 25, scene);
+}
+#endif
+
 void BuildTelegramScene(lv_obj_t *screen, ActionCallback callback, void *context) {
   auto *scene = new TelegramScene;
   scene->existing_vault =
@@ -1771,7 +2095,13 @@ void BuildTelegramScene(lv_obj_t *screen, ActionCallback callback, void *context
   Clear(scene->surface);
   lv_obj_add_event_cb(scene->surface, [](lv_event_t *event) {
     auto *scene = static_cast<TelegramScene *>(lv_event_get_user_data(event));
-    if (scene->keyboard_visible)
+    if (scene->resetting_session || scene->changing_vault_password) return;
+    if (scene->session_settings) {
+      scene->change_after_unlock = false;
+      if (scene->auth == telegram::AuthState::kReady) ShowChats(scene);
+      else ShowAuth(scene, telegram::AuthState::kNeedVault, "");
+    }
+    else if (scene->keyboard_visible)
       SetChatKeyboard(scene, false);
     else if (scene->chat_id != 0)
       ShowChats(scene);

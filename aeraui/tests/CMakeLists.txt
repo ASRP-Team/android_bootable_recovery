@@ -16,7 +16,7 @@ find_package(JPEG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 target_link_libraries(lvgl PUBLIC Freetype::Freetype)
-add_executable(ui_check ui_check.cpp plugin_runtime_ui_test.cpp
+add_executable(ui_check ui_check.cpp plugin_runtime_ui_test.cpp telegram_session_ui_test.cpp
   ../components/plugin_desktop.cpp
   ../features/plugin_api/session.cpp ../features/plugin_api/activity.cpp
   ../scenes/developer_scene.cpp
@@ -45,12 +45,13 @@ add_executable(ui_check ui_check.cpp plugin_runtime_ui_test.cpp
   ../components/picture_viewer.cpp ../components/wallpaper.cpp
   ../scenes/operation_scene.cpp
   ../scenes/decrypt_scene.cpp ../features/browser/web_scene.cpp
-  ../features/browser/session.cpp ../features/browser/launcher.cpp)
+  ../features/browser/session.cpp ../features/browser/launcher.cpp
+  ../scenes/telegram_scene.cpp ../features/telegram/launcher.cpp)
 target_include_directories(ui_check PRIVATE .. ../include ../components ../assets
   ../features ../features/files ../localization ../localization/fonts
   ../scenes)
 target_compile_definitions(ui_check PRIVATE AERA_DEFAULT_LANGUAGE="en" AERA_EXTRA_LANGUAGES)
-target_compile_definitions(ui_check PRIVATE AERA_ENABLE_MOBILE_DATA=1)
+target_compile_definitions(ui_check PRIVATE AERA_ENABLE_MOBILE_DATA=1 AERA_TELEGRAM_UI_TEST=1)
 target_compile_definitions(ui_check PRIVATE
   AERA_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets"
   AERA_COMMON_FONT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/../localization/fonts/assets")
@@ -495,3 +496,10 @@ add_executable(plugin_text_input_test plugin_text_input_test.cpp)
 target_include_directories(plugin_text_input_test PRIVATE ../features)
 target_compile_options(plugin_text_input_test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME plugin_native_text_validation COMMAND plugin_text_input_test)
+
+add_test(NAME telegram_local_session_ui COMMAND ui_check --telegram-session)
+
+add_executable(telegram_session_storage_test telegram_session_storage_test.cpp)
+target_include_directories(telegram_session_storage_test PRIVATE ../features)
+target_compile_options(telegram_session_storage_test PRIVATE -UNDEBUG)
+add_test(NAME telegram_session_storage_reset COMMAND telegram_session_storage_test)

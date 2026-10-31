@@ -713,6 +713,8 @@ static void AssertVisibleCaret(lv_obj_t *input) {
   assert(lv_obj_get_style_anim_duration(input, LV_PART_CURSOR) > 0);
 }
 #include "gpu_context.hpp"
+namespace aeraui { void BuildTelegramSessionTestScene(lv_obj_t *, bool, bool, int); }
+void RunTelegramSessionUiTests(lv_display_t *, lv_obj_t *);
 int main(int argc,char **argv) {
   assert(argc==2);
   char fixture_dir[]="/tmp/aera-restore-test-XXXXXX"; assert(mkdtemp(fixture_dir));
@@ -1017,6 +1019,26 @@ int main(int argc,char **argv) {
     }
     std::filesystem::remove_all(backup_root);
     puts("File search: toolbar, keyboard, recursive results, empty results and Back passed");
+    return 0;
+  }
+  if (!strcmp(argv[1], "--telegram-session")) {
+    RunTelegramSessionUiTests(display, screen);
+    lv_display_set_resolution(display, 1440, 3168);
+    auto *preview = lv_obj_create(nullptr);
+    BuildTelegramSessionTestScene(preview, true, false, -1);
+    lv_screen_load(preview); Tick();
+    auto *menu = Find(preview, LV_SYMBOL_SETTINGS); assert(menu);
+    lv_obj_send_event(menu, LV_EVENT_CLICKED, nullptr); Tick();
+    save("/tmp/aera-telegram-session-menu.png", 2);
+    auto *change = Find(preview, "Change vault password"); assert(change);
+    lv_obj_send_event(change, LV_EVENT_CLICKED, nullptr); Tick();
+    auto *old = FindType(preview, &lv_textarea_class); assert(old);
+    lv_textarea_set_text(old, "old-password");
+    auto *proceed = Find(preview, "Continue"); assert(proceed);
+    lv_obj_send_event(proceed, LV_EVENT_CLICKED, nullptr); Tick();
+    save("/tmp/aera-telegram-session-password.png", 2);
+    lv_screen_load(screen); lv_obj_delete(preview); Tick(2);
+    std::filesystem::remove_all(backup_root);
     return 0;
   }
   if (!strcmp(argv[1], "--browser-settings")) {

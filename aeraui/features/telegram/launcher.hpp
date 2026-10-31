@@ -4,6 +4,7 @@
 #include <sys/types.h>
 
 namespace aeraui::telegram {
+bool ResetLocalSession(std::string &error);
 class Process {
  public:
   ~Process() { Stop(); }
